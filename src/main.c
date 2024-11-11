@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <errno.h>
+#include "parser.h"
 
 static void print_usage(const char* name) {
     fprintf(stderr, 
@@ -63,6 +64,14 @@ int main(int argc, char** argv) {
     }
 
     printf("[DEBUG] Proccess %d has been stopped\n", pid);
+
+    ret = parse_procfs(pid);
+    if (ret < 0) {
+        fprintf(stderr,
+                "Error occured while parsing /proc/%d/maps\n", 
+                pid);
+        exit(EXIT_FAILURE);
+    }
 
     ret = kill(pid, SIGCONT);
     if (ret < 0) {
