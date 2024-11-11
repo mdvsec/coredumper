@@ -65,12 +65,14 @@ int main(int argc, char** argv) {
 
     printf("[DEBUG] Proccess %d has been stopped\n", pid);
 
-    ret = parse_procfs(pid);
-    if (ret < 0) {
+    maps_entry_t* pid_maps = parse_procfs_maps(pid);
+    if (!pid_maps) {
         fprintf(stderr,
                 "Error occured while parsing /proc/%d/maps\n", 
                 pid);
-        exit(EXIT_FAILURE);
+    } else {
+        print_maps_list(pid_maps);
+        free_maps_list(pid_maps);
     }
 
     ret = kill(pid, SIGCONT);
