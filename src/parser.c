@@ -19,7 +19,7 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
     char format[64];
 
     /*  Each line is formatted as follows:
-     * ffffbddf0000-ffffbdf78000 r-xp 00000000 fd:00 1836518                    /usr/lib/aarch64-linux-gnu/libc.so.6 
+     *  ffffbddf0000-ffffbdf78000 r-xp 00000000 fd:00 1836518                    /usr/lib/aarch64-linux-gnu/libc.so.6 
      */ 
     snprintf(format, sizeof(format), "%%llx-%%llx %%4s %%llx %%x:%%x %%lu %%%d[^\n]", PATH_MAX - 1);
 
@@ -66,6 +66,16 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
         }
 
         tail->next = NULL;
+    }
+
+    // The file may be closed while being read
+    if (ferror(maps_file)) {
+        fprintf(stderr,
+                "Error occured while reading file %s\n",
+                maps_path);
+        free_maps_list(pid_maps);
+        fclose(maps_file);
+        return NULL;
     }
 
     fclose(maps_file);
