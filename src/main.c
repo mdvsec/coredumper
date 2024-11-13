@@ -4,6 +4,7 @@
 #include <signal.h>
 #include <errno.h>
 #include "parser.h"
+#include "dumper.h"
 
 static void print_usage(const char* name) {
     fprintf(stderr, 
@@ -72,6 +73,14 @@ int main(int argc, char** argv) {
                 pid);
     } else {
         print_maps_list(pid_maps);
+
+        ret = dump_procfs_mem(pid, pid_maps);
+        if (ret < 0) {
+            fprintf(stderr,
+                    "Error occured while dumping memory of process %d\n",
+                    pid);
+        }
+
         free_maps_list(pid_maps);
     }
 
