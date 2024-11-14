@@ -6,13 +6,14 @@
 #include "parser.h"
 #include "dumper.h"
 
-static void print_usage(const char* name) {
+static void __attribute__((noreturn)) print_usage_exit(const char* name) {
     fprintf(stderr, 
             "Usage: %s -p <PID>\n",
             name);
+    exit(EXIT_FAILURE);
 }
 
-static void handle_kill_error(const int pid) {
+static void __attribute__((noreturn)) handle_kill_error_exit(const int pid) {
     switch (errno) {
         case EPERM:
             fprintf(stderr, 
@@ -30,6 +31,7 @@ static void handle_kill_error(const int pid) {
                     pid);
             break;
     }
+    exit(EXIT_FAILURE);
 }
 
 int main(int argc, char** argv) {
@@ -42,26 +44,22 @@ int main(int argc, char** argv) {
             case 'p':
                 pid = atoi(optarg);
                 if (pid <= 0) {
-                    print_usage(argv[0]);
-                    exit(EXIT_FAILURE);
+                    print_usage_exit(argv[0]);
                 }
                 break;
             case '?':
             default:
-                print_usage(argv[0]);
-                exit(EXIT_FAILURE);
+                print_usage_exit(argv[0]);
         }
     }
 
     if (!pid) {
-        print_usage(argv[0]);
-        exit(EXIT_FAILURE);
+        print_usage_exit(argv[0]);
     }
 
     ret = kill(pid, SIGSTOP);
     if (ret < 0) {
-        handle_kill_error(pid);
-        exit(EXIT_FAILURE);
+        handle_kill_error_exit(pid);
     }
 
     printf("[DEBUG] Proccess %d has been stopped\n", pid);
@@ -86,8 +84,7 @@ int main(int argc, char** argv) {
 
     ret = kill(pid, SIGCONT);
     if (ret < 0) {
-        handle_kill_error(pid);
-        exit(EXIT_FAILURE);
+        handle_kill_error_exit(pid);
     }
 
     printf("[DEBUG] Process %d has been resumed\n", pid);
