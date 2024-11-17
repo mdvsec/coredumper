@@ -5,13 +5,6 @@
 #include <limits.h>
 #include <sys/types.h>
 
-/*
- *   Defines the buffer size for reading lines from the /proc/PID/maps file.
- *   The last field in each line may contain an absolute file path, thus PATH_MAX, 
- *   and 256 is an arbitrary value chosen to account all other fields.
- */
-#define LINE_SIZE PATH_MAX + 256 
-
 typedef struct _maps_entry_t {
     uint64_t start_addr;
     uint64_t end_addr;

@@ -4,6 +4,13 @@
 #include <string.h>
 #include <stddef.h>
 
+/*
+ *   Defines the buffer size for reading lines from the /proc/PID/maps file.
+ *   The last field in each line may contain an absolute file path, thus PATH_MAX, 
+ *   and 256 is an arbitrary value chosen to account all other fields.
+ */
+#define LINE_SIZE PATH_MAX + 256 
+
 maps_entry_t* parse_procfs_maps(const pid_t pid) {
     maps_entry_t* pid_maps = NULL;
     maps_entry_t* tail = pid_maps;
@@ -30,9 +37,7 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
         if (!maps_entry) {
             fprintf(stderr,
                     "Not enough memory, aborting\n");
-            free_maps_list(pid_maps);
-            fclose(maps_file);
-            return NULL;
+            goto cleanup;
         }
 
         int matched = sscanf(line, 
@@ -50,9 +55,8 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
             fprintf(stderr,
                     "Error occured while parsing line: %s", 
                     line);
-            free_maps_list(pid_maps);
-            fclose(maps_file);
-            return NULL; 
+            free(maps_entry);
+            goto cleanup;
         }
 
         size_t path_len = strlen(tmp_pathname);
@@ -63,16 +67,16 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
         }
 
         if (maps_entry->len) {
-            maps_entry = realloc(maps_entry, offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
+            maps_entry_t* maps_entry_tmp = realloc(maps_entry, offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
 
-            if (!maps_entry) {
+            if (!maps_entry_tmp) {
                 fprintf(stderr,
                     "Not enough memory, aborting\n");
-                free_maps_list(pid_maps);
-                fclose(maps_file);
-                return NULL;
+                free(maps_entry);
+                goto cleanup;
             }
-
+            
+            maps_entry = maps_entry_tmp;
             strcpy(maps_entry->pathname, tmp_pathname);
         }
 
@@ -91,14 +95,17 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
         fprintf(stderr,
                 "Error occured while reading file %s\n",
                 maps_path);
-        free_maps_list(pid_maps);
-        fclose(maps_file);
-        return NULL;
+        goto cleanup;
     }
 
     fclose(maps_file);
 
     return pid_maps;
+
+cleanup:
+    free_maps_list(pid_maps);
+    fclose(maps_file);
+    return NULL;
 }
 
 void free_maps_list(maps_entry_t* head) {
