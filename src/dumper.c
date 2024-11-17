@@ -4,10 +4,15 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define CHUNK_SIZE 4096
 #define DUMP_SUCCESS 0
 #define DUMP_ERROR -1
+
+static int is_readable(const maps_entry_t* entry) {
+    return entry->perms[0] == 'r' && strcmp(entry->pathname, "[vvar]");
+}
 
 int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
     char mem_path[32];
@@ -29,7 +34,13 @@ int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
 
         printf("[DEBUG] Attempt to read %s\n", region_name);
 
-        int region_fd = open(region_name, O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (!is_readable(curr)) {
+            printf("[DEBUG] Skipping non-readable memory region %s\n", region_name);
+            curr = curr->next;
+            continue;
+        }
+
+        int region_fd = open(region_name, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
         if (region_fd < 0) {
             fprintf(stderr, 
                     "Error occured while creating a dump file %s\n", 
@@ -46,7 +57,6 @@ int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
         while (offset < len) {
             ssize_t read_sz = (len - offset) > CHUNK_SIZE ? CHUNK_SIZE : len - offset;
 
-            // [vvar] and regions without "r" flag cannot be accessed with pread() 
             read_sz = pread(mem_fd, buf, read_sz, curr->start_addr + offset);
             if (read_sz < 0) {
                 fprintf(stderr,
@@ -57,7 +67,7 @@ int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
                 break;
             }
 
-            // Incomplete write() should be handled
+            // TBD: Incomplete write() should be handled
             ssize_t write_sz = write(region_fd, buf, read_sz);
             if (write_sz < 0) {
                 fprintf(stderr,

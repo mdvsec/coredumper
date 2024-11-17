@@ -67,11 +67,12 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
         }
 
         if (maps_entry->len) {
-            maps_entry_t* maps_entry_tmp = realloc(maps_entry, offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
+            maps_entry_t* maps_entry_tmp = realloc(maps_entry, 
+                                                   offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
 
             if (!maps_entry_tmp) {
                 fprintf(stderr,
-                    "Not enough memory, aborting\n");
+                        "Not enough memory, aborting\n");
                 free(maps_entry);
                 goto cleanup;
             }
