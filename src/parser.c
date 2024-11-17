@@ -2,12 +2,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 
 maps_entry_t* parse_procfs_maps(const pid_t pid) {
     maps_entry_t* pid_maps = NULL;
     maps_entry_t* tail = pid_maps;
 
-    char maps_path[PATH_MAX];
+    char maps_path[32];
     snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid);
 
     FILE *maps_file = fopen(maps_path, "r");
@@ -24,6 +25,7 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
     snprintf(format, sizeof(format), "%%llx-%%llx %%4s %%llx %%x:%%x %%lu %%%d[^\n]", PATH_MAX - 1);
 
     while (fgets(line, sizeof(line), maps_file)) {
+        char tmp_pathname[PATH_MAX] = {0};
         maps_entry_t* maps_entry = malloc(sizeof(maps_entry_t));
         if (!maps_entry) {
             fprintf(stderr,
@@ -33,7 +35,6 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
             return NULL;
         }
 
-        maps_entry->pathname[0] = '\0';
         int matched = sscanf(line, 
                              format,
                              &maps_entry->start_addr,
@@ -43,7 +44,7 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
                              &maps_entry->dev_major,
                              &maps_entry->dev_minor,
                              &maps_entry->inode,
-                             maps_entry->pathname);
+                             tmp_pathname);
 
         if (matched < 7) {
             fprintf(stderr,
@@ -54,8 +55,25 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
             return NULL; 
         }
 
-        if (maps_entry->pathname[0] == '\0') {
-            strncpy(maps_entry->pathname, "[anonymous]", PATH_MAX);
+        size_t path_len = strlen(tmp_pathname);
+        if (path_len) {
+            maps_entry->len = path_len + 1;
+        } else {
+            maps_entry->len = 0;
+        }
+
+        if (maps_entry->len) {
+            maps_entry = realloc(maps_entry, offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
+
+            if (!maps_entry) {
+                fprintf(stderr,
+                    "Not enough memory, aborting\n");
+                free_maps_list(pid_maps);
+                fclose(maps_file);
+                return NULL;
+            }
+
+            strcpy(maps_entry->pathname, tmp_pathname);
         }
 
         if (pid_maps) {
@@ -101,7 +119,12 @@ void print_maps_list(maps_entry_t* head) {
         printf("Dev major: %x\n", curr->dev_major);
         printf("Dev minor: %x\n", curr->dev_minor);
         printf("Inode: %lu\n", curr->inode);
-        printf("Pathname: %s\n", curr->pathname);
+
+        if (curr->len) {
+            printf("Pathname: %s\n", curr->pathname);
+        } else {
+            printf("Pathname: [anonymous]\n");
+        }
 
         curr = curr->next;
     }

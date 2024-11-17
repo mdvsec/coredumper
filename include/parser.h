@@ -20,8 +20,9 @@ typedef struct _maps_entry_t {
     int dev_major;
     int dev_minor;
     uint64_t inode;
-    char pathname[PATH_MAX];
+    size_t len;
     struct _maps_entry_t* next;
+    char pathname[];
 } maps_entry_t;
 
 /*
