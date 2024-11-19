@@ -4,12 +4,16 @@
 #include <string.h>
 #include <stddef.h>
 
-/*
- *   Defines the buffer size for reading lines from the /proc/PID/maps file.
- *   The last field in each line may contain an absolute file path, thus PATH_MAX, 
- *   and 256 is an arbitrary value chosen to account all other fields.
+#define stringify(x) #x
+#define tostring(x) stringify(x)
+
+#define PATH_SIZE 4096
+#define LINE_SIZE PATH_SIZE + 256 
+
+/*  Each line is formatted as follows:
+ *  ffffbddf0000-ffffbdf78000 r-xp 00000000 fd:00 1836518                    /usr/lib/aarch64-linux-gnu/libc.so.6 
  */
-#define LINE_SIZE PATH_MAX + 256 
+#define FORMAT_STRING "%lx-%lx %4s %lx %x:%x %lu %" tostring(PATH_SIZE) "[^\n]"
 
 maps_entry_t* parse_procfs_maps(const pid_t pid) {
     maps_entry_t* pid_maps = NULL;
@@ -24,15 +28,8 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
     }
 
     char line[LINE_SIZE];
-    char format[64];
-
-    /*  Each line is formatted as follows:
-     *  ffffbddf0000-ffffbdf78000 r-xp 00000000 fd:00 1836518                    /usr/lib/aarch64-linux-gnu/libc.so.6 
-     */ 
-    snprintf(format, sizeof(format), "%%llx-%%llx %%4s %%llx %%x:%%x %%lu %%%d[^\n]", PATH_MAX - 1);
-
     while (fgets(line, sizeof(line), maps_file)) {
-        char tmp_pathname[PATH_MAX] = {0};
+        char tmp_pathname[PATH_SIZE + 1] = {0};
         maps_entry_t* maps_entry = malloc(sizeof(maps_entry_t));
         if (!maps_entry) {
             fprintf(stderr,
@@ -41,7 +38,7 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
         }
 
         int matched = sscanf(line, 
-                             format,
+                             FORMAT_STRING,
                              &maps_entry->start_addr,
                              &maps_entry->end_addr,
                              maps_entry->perms,

@@ -6,8 +6,8 @@
 #include <sys/types.h>
 
 typedef struct _maps_entry_t {
-    uint64_t start_addr;
-    uint64_t end_addr;
+    uintptr_t start_addr;
+    uintptr_t end_addr;
     char perms[5];
     uint64_t offset;
     int dev_major;
