@@ -32,6 +32,7 @@ typedef struct _maps_entry_t {
 maps_entry_t* parse_procfs_maps(const pid_t);
 
 void free_maps_list(maps_entry_t*);
-void print_maps_list(maps_entry_t*);
+void print_maps_list(const maps_entry_t*);
+size_t count_proc_maps(const maps_entry_t*);
 
 #endif

@@ -57,11 +57,7 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
         }
 
         size_t path_len = strlen(tmp_pathname);
-        if (path_len) {
-            maps_entry->len = path_len + 1;
-        } else {
-            maps_entry->len = 0;
-        }
+        maps_entry->len = path_len ? path_len + 1 : 0;
 
         if (maps_entry->len) {
             maps_entry_t* maps_entry_tmp = realloc(maps_entry, 
@@ -114,8 +110,8 @@ void free_maps_list(maps_entry_t* head) {
     }
 }
 
-void print_maps_list(maps_entry_t* head) {
-    maps_entry_t* curr = head;
+void print_maps_list(const maps_entry_t* head) {
+    const maps_entry_t* curr = head;
     while (curr) {
         printf("Start addr: %lx\n", curr->start_addr);
         printf("End addr: %lx\n", curr->end_addr);
@@ -135,4 +131,13 @@ void print_maps_list(maps_entry_t* head) {
     }
 }
 
+size_t count_proc_maps(const maps_entry_t* head) {
+    size_t count = 0;
+    const maps_entry_t* curr = head;
+    while (curr) {
+        count++;
+        curr = curr->next;
+    }
 
+    return count;
+}
