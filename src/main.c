@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <errno.h>
-#include "parser.h"
 #include "dumper.h"
 
 static void __attribute__((noreturn)) print_usage_exit(const char* name) {
@@ -36,7 +35,7 @@ static void __attribute__((noreturn)) handle_kill_error_exit(const int pid) {
 
 int main(int argc, char** argv) {
     int opt;
-    int ret;
+    int ret, rc;
     pid_t pid = 0;
 
     while ((opt = getopt(argc, argv, "p:")) > 0) {
@@ -64,22 +63,10 @@ int main(int argc, char** argv) {
 
     printf("[DEBUG] Proccess %d has been stopped\n", pid);
 
-    maps_entry_t* pid_maps = parse_procfs_maps(pid);
-    if (!pid_maps) {
+    rc = create_coredump(pid);
+    if (rc < 0) {
         fprintf(stderr,
-                "Error occured while parsing /proc/%d/maps\n", 
-                pid);
-    } else {
-        print_maps_list(pid_maps);
-        
-        ret = dump_procfs_mem(pid, pid_maps);
-        if (ret < 0) {
-            fprintf(stderr,
-                    "Error occured while dumping memory of process %d\n",
-                    pid);
-        }
-
-        free_maps_list(pid_maps);
+                "Error occured while creating coredump file\n");
     }
 
     ret = kill(pid, SIGCONT);
@@ -89,5 +76,5 @@ int main(int argc, char** argv) {
 
     printf("[DEBUG] Process %d has been resumed\n", pid);
 
-    return EXIT_SUCCESS;
+    return rc;
 }
