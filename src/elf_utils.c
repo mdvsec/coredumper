@@ -42,26 +42,16 @@ int write_elf_header(const int fd, const size_t phdr_count) {
     return 0;
 }
 
-int write_program_header_table(const int fd, const maps_entry_t* head, const size_t phdr_count) {
-    size_t table_sz = sizeof(Elf64_Phdr) * phdr_count;
-    Elf64_Phdr* phdr_table = malloc(table_sz);
-    if (!phdr_table) {
-        return -1;
-    }
-
+int write_program_header_table(const int fd, const maps_entry_t* head) {
     const maps_entry_t* entry = head;
-    size_t index = 0;
     while (entry) {
-        phdr_table[index++] = create_program_header(entry);
+        Elf64_Phdr phdr = create_program_header(entry);
+        if (write(fd, &phdr, sizeof(Elf64_Phdr)) != sizeof(Elf64_Phdr)) {
+            return -1;
+        }
+
         entry = entry->next;
     }
-
-    if (write(fd, phdr_table, table_sz) != table_sz) {
-        free(phdr_table);
-        return -1;
-    }
-
-    free(phdr_table);
 
     return 0;
 }

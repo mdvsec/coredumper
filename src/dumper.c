@@ -13,8 +13,8 @@
 #define DUMP_ERROR -1
 
 int create_coredump(const pid_t pid) {
-    int ret;
     maps_entry_t* pid_maps;
+    int ret;
 
     pid_maps = parse_procfs_maps(pid);
     if (!pid_maps) {
@@ -51,7 +51,7 @@ int create_coredump(const pid_t pid) {
         return -1;
     }
 
-    ret = write_program_header_table(coredump_fd, pid_maps, phdr_count);
+    ret = write_program_header_table(coredump_fd, pid_maps);
     if (ret < 0) {
         fprintf(stderr,
                 "Error occured while writing to file %s\n",
@@ -60,6 +60,8 @@ int create_coredump(const pid_t pid) {
         close(coredump_fd);
         return -1;
     }
+
+    // Write program headers
 
     close(coredump_fd);
 
