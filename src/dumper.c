@@ -14,6 +14,9 @@
 
 int create_coredump(const pid_t pid) {
     maps_entry_t* pid_maps;
+    char coredump_path[32];
+    int coredump_fd;
+    size_t phdr_count;
     int ret;
 
     pid_maps = parse_procfs_maps(pid);
@@ -26,13 +29,12 @@ int create_coredump(const pid_t pid) {
 
     print_maps_list(pid_maps);
 
-    size_t phdr_count = count_proc_maps(pid_maps);
+    phdr_count = count_proc_maps(pid_maps);
     printf("[DEBUG] Prog headers: %zu\n", phdr_count);
 
-    char coredump_path[32];
     snprintf(coredump_path, sizeof(coredump_path), "%d_coredump", pid);
 
-    int coredump_fd = open(coredump_path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0600);
+    coredump_fd = open(coredump_path, O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0600);
     if (coredump_fd < 0) {
         fprintf(stderr,
                 "Error occured while creating file %s\n",
@@ -77,8 +79,9 @@ static int is_readable(const maps_entry_t* entry) {
 static int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
     int mem_fd = -1;
     int region_fd = -1;
-
     char mem_path[32];
+    maps_entry_t* entry;
+
     snprintf(mem_path, sizeof(mem_path), "/proc/%d/mem", pid);
 
     mem_fd = open(mem_path, O_RDONLY);
@@ -89,17 +92,21 @@ static int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
         return DUMP_ERROR;
     }
 
-    maps_entry_t* curr = pid_maps;
-    while (curr) {
+    entry = pid_maps;
+    while (entry) {
         char region_name[256];
+        size_t len;
+        size_t offset;
+        char buf[CHUNK_SIZE];
+
         snprintf(region_name, sizeof(region_name), "0x%lx-0x%lx", 
-                 curr->start_addr, curr->end_addr);
+                 entry->start_addr, entry->end_addr);
 
         printf("[DEBUG] Attempt to read %s\n", region_name);
 
-        if (!is_readable(curr)) {
+        if (!is_readable(entry)) {
             printf("[DEBUG] Skipping non-readable memory region %s\n", region_name);
-            curr = curr->next;
+            entry = entry->next;
             continue;
         }
 
@@ -111,17 +118,18 @@ static int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
             goto cleanup;
         }
 
-        size_t len = curr->end_addr - curr->start_addr;
-        size_t offset = 0;
-        char buf[CHUNK_SIZE];
+        len = entry->end_addr - entry->start_addr;
+        offset = 0;
 
         while (offset < len) {
             ssize_t read_sz = (len - offset) > CHUNK_SIZE ? CHUNK_SIZE : len - offset;
+            ssize_t write_sz = 0;
+            ssize_t write_total_sz = 0;
 
             read_sz = pread(mem_fd, 
                             buf, 
                             read_sz, 
-                            curr->start_addr + offset);
+                            entry->start_addr + offset);
 
             if (read_sz < 0) {
                 fprintf(stderr,
@@ -130,8 +138,6 @@ static int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
                 goto cleanup;
             }
 
-            ssize_t write_sz = 0;
-            ssize_t write_total_sz = 0;
             while (write_total_sz < read_sz) {
                 write_sz = write(region_fd, 
                                  buf + write_total_sz, 
@@ -151,7 +157,7 @@ static int dump_procfs_mem(pid_t pid, maps_entry_t* pid_maps) {
 
         close(region_fd);
 
-        curr = curr->next;
+        entry = entry->next;
     }
 
     close(mem_fd);

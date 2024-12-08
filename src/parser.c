@@ -19,34 +19,40 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
     maps_entry_t* pid_maps = NULL;
     maps_entry_t* tail = pid_maps;
 
+    FILE* maps_file;
+    char line[LINE_SIZE];
+
     char maps_path[32];
     snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid);
 
-    FILE *maps_file = fopen(maps_path, "r");
+    maps_file = fopen(maps_path, "r");
     if (!maps_file) {
         return NULL; 
     }
 
-    char line[LINE_SIZE];
     while (fgets(line, sizeof(line), maps_file)) {
         char tmp_pathname[PATH_SIZE + 1] = {0};
-        maps_entry_t* maps_entry = malloc(sizeof(maps_entry_t));
+        size_t path_len;
+        maps_entry_t* maps_entry;
+        int matched;
+
+        maps_entry = malloc(sizeof(maps_entry_t));
         if (!maps_entry) {
             fprintf(stderr,
                     "Not enough memory, aborting\n");
             goto cleanup;
         }
 
-        int matched = sscanf(line, 
-                             FORMAT_STRING,
-                             &maps_entry->start_addr,
-                             &maps_entry->end_addr,
-                             maps_entry->perms,
-                             &maps_entry->offset,
-                             &maps_entry->dev_major,
-                             &maps_entry->dev_minor,
-                             &maps_entry->inode,
-                             tmp_pathname);
+        matched = sscanf(line,
+                         FORMAT_STRING,
+                         &maps_entry->start_addr,
+                         &maps_entry->end_addr,
+                         maps_entry->perms,
+                         &maps_entry->offset,
+                         &maps_entry->dev_major,
+                         &maps_entry->dev_minor,
+                         &maps_entry->inode,
+                         tmp_pathname);
 
         if (matched < 7) {
             fprintf(stderr,
@@ -56,7 +62,7 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
             goto cleanup;
         }
 
-        size_t path_len = strlen(tmp_pathname);
+        path_len = strlen(tmp_pathname);
         maps_entry->len = path_len ? path_len + 1 : 0;
 
         if (maps_entry->len) {
@@ -111,32 +117,32 @@ void free_maps_list(maps_entry_t* head) {
 }
 
 void print_maps_list(const maps_entry_t* head) {
-    const maps_entry_t* curr = head;
-    while (curr) {
-        printf("Start addr: %lx\n", curr->start_addr);
-        printf("End addr: %lx\n", curr->end_addr);
-        printf("Permissions: %s\n", curr->perms);
-        printf("Offset: %lx\n", curr->offset);
-        printf("Dev major: %x\n", curr->dev_major);
-        printf("Dev minor: %x\n", curr->dev_minor);
-        printf("Inode: %lu\n", curr->inode);
+    const maps_entry_t* entry = head;
+    while (entry) {
+        printf("Start addr: %lx\n", entry->start_addr);
+        printf("End addr: %lx\n", entry->end_addr);
+        printf("Permissions: %s\n", entry->perms);
+        printf("Offset: %lx\n", entry->offset);
+        printf("Dev major: %x\n", entry->dev_major);
+        printf("Dev minor: %x\n", entry->dev_minor);
+        printf("Inode: %lu\n", entry->inode);
 
-        if (curr->len) {
-            printf("Pathname: %s\n", curr->pathname);
+        if (entry->len) {
+            printf("Pathname: %s\n", entry->pathname);
         } else {
             printf("Pathname: [anonymous]\n");
         }
 
-        curr = curr->next;
+        entry = entry->next;
     }
 }
 
 size_t count_proc_maps(const maps_entry_t* head) {
     size_t count = 0;
-    const maps_entry_t* curr = head;
-    while (curr) {
+    const maps_entry_t* entry = head;
+    while (entry) {
         count++;
-        curr = curr->next;
+        entry = entry->next;
     }
 
     return count;
