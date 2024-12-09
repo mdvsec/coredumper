@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <errno.h>
-#include "dumper.h"
+#include "coredump.h"
 
 static void __attribute__((noreturn)) print_usage_exit(const char* name) {
     fprintf(stderr, 

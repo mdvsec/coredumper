@@ -1,5 +1,5 @@
-#ifndef DUMPER_H
-#define DUMPER_H
+#ifndef COREDUMP_H 
+#define COREDUMP_H
 
 #include <sys/types.h>
 
