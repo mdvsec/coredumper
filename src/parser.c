@@ -15,6 +15,8 @@
  */
 #define FORMAT_STRING "%lx-%lx %4s %lx %x:%x %lu %" tostring(PATH_SIZE) "[^\n]"
 
+size_t mem_region_count = 0;
+
 maps_entry_t* parse_procfs_maps(const pid_t pid) {
     maps_entry_t* pid_maps = NULL;
     maps_entry_t* tail = pid_maps;
@@ -86,6 +88,8 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
         } else {
             pid_maps = tail = maps_entry;
         }
+
+        mem_region_count++;
 
         tail->next = NULL;
     }

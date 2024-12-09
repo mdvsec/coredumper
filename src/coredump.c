@@ -12,7 +12,6 @@ int create_coredump(const pid_t pid) {
     maps_entry_t* pid_maps;
     char coredump_path[32];
     int coredump_fd;
-    size_t phdr_count;
     int ret;
 
     pid_maps = parse_procfs_maps(pid);
@@ -22,11 +21,6 @@ int create_coredump(const pid_t pid) {
                 pid);
         return -1;
     }
-
-    print_maps_list(pid_maps);
-
-    phdr_count = count_proc_maps(pid_maps);
-    printf("[DEBUG] Prog headers: %zu\n", phdr_count);
 
     snprintf(coredump_path, sizeof(coredump_path), "%d_coredump", pid);
 
@@ -39,7 +33,7 @@ int create_coredump(const pid_t pid) {
         return -1;
     }
 
-    ret = write_elf_header(coredump_fd, phdr_count);
+    ret = write_elf_header(coredump_fd);
     if (ret < 0) {
         fprintf(stderr,
                 "Error occured while writing to file %s\n",

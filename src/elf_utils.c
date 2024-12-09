@@ -12,8 +12,9 @@ static Elf64_Phdr create_program_header(const maps_entry_t*);
 static long get_pagesize(void);
 
 static uint64_t current_coredump_offset;
+extern size_t mem_region_count;
 
-int write_elf_header(const int fd, const size_t phdr_count) {
+int write_elf_header(const int fd) {
     Elf64_Ehdr elf_hdr;
     memset(&elf_hdr, 0, sizeof(elf_hdr));
 
@@ -35,7 +36,7 @@ int write_elf_header(const int fd, const size_t phdr_count) {
     elf_hdr.e_phoff = sizeof(Elf64_Ehdr); 
     elf_hdr.e_ehsize = sizeof(Elf64_Ehdr);
     elf_hdr.e_phentsize = sizeof(Elf64_Phdr);
-    elf_hdr.e_phnum = phdr_count;
+    elf_hdr.e_phnum = mem_region_count;
 
     current_coredump_offset = get_pagesize();
 
