@@ -140,14 +140,3 @@ void print_maps_list(const maps_entry_t* head) {
         entry = entry->next;
     }
 }
-
-size_t count_proc_maps(const maps_entry_t* head) {
-    size_t count = 0;
-    const maps_entry_t* entry = head;
-    while (entry) {
-        count++;
-        entry = entry->next;
-    }
-
-    return count;
-}
