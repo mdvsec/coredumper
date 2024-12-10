@@ -43,7 +43,7 @@ int create_coredump(const pid_t pid) {
         return -1;
     }
 
-    ret = write_program_headers(coredump_fd, pid_maps, pid);
+    ret = write_elf_program_headers(coredump_fd, pid_maps, pid);
     if (ret < 0) {
         fprintf(stderr,
                 "Error occured while writing to file %s\n",
