@@ -8,9 +8,8 @@
 #include "parser.h"
 #include "elf_utils.h"
 
-int create_coredump(const pid_t pid) {
+int create_coredump(const pid_t pid, const char* filename) {
     maps_entry_t* pid_maps;
-    char coredump_path[32];
     int coredump_fd;
     int ret;
 
@@ -22,13 +21,11 @@ int create_coredump(const pid_t pid) {
         return -1;
     }
 
-    snprintf(coredump_path, sizeof(coredump_path), "%d_coredump", pid);
-
-    coredump_fd = open(coredump_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    coredump_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (coredump_fd < 0) {
         fprintf(stderr,
                 "Error occured while creating file %s\n",
-                coredump_path);
+                filename);
         free_maps_list(pid_maps);
         return -1;
     }
@@ -37,7 +34,7 @@ int create_coredump(const pid_t pid) {
     if (ret < 0) {
         fprintf(stderr,
                 "Error occured while writing to file %s\n",
-                coredump_path);
+                filename);
         free_maps_list(pid_maps);
         close(coredump_fd);
         return -1;
@@ -47,7 +44,7 @@ int create_coredump(const pid_t pid) {
     if (ret < 0) {
         fprintf(stderr,
                 "Error occured while writing to file %s\n",
-                coredump_path);
+                filename);
         free_maps_list(pid_maps);
         close(coredump_fd);
         return -1;

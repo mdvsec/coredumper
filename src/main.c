@@ -3,11 +3,14 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <errno.h>
+#include <string.h>
 #include "coredump.h"
+
+#define PATHNAME_MAX 64
 
 static void __attribute__((noreturn)) print_usage_exit(const char* name) {
     fprintf(stderr, 
-            "Usage: %s -p <PID>\n",
+            "Usage: %s -p <pid> [-o filename]\n",
             name);
     exit(EXIT_FAILURE);
 }
@@ -34,17 +37,29 @@ static void __attribute__((noreturn)) handle_kill_error_exit(const int pid) {
 }
 
 int main(int argc, char** argv) {
+    char filename[PATHNAME_MAX];
+    int custom_filename = 0;
     int opt;
     int ret, rc;
     pid_t pid = 0;
 
-    while ((opt = getopt(argc, argv, "p:")) > 0) {
+    while ((opt = getopt(argc, argv, "p:o:")) > 0) {
         switch (opt) {
             case 'p':
                 pid = atoi(optarg);
                 if (pid <= 0) {
                     print_usage_exit(argv[0]);
                 }
+
+                break;
+            case 'o':
+                if (strlen(optarg) >= PATHNAME_MAX) {
+                    print_usage_exit(argv[0]);
+                }
+                strncpy(filename, optarg, PATHNAME_MAX - 1);
+                filename[PATHNAME_MAX - 1] = 0;
+                custom_filename = 1;
+
                 break;
             case '?':
             default:
@@ -56,6 +71,10 @@ int main(int argc, char** argv) {
         print_usage_exit(argv[0]);
     }
 
+    if (!custom_filename) {
+        snprintf(filename, sizeof(filename), "%d_coredump", pid);
+    }
+
     ret = kill(pid, SIGSTOP);
     if (ret < 0) {
         handle_kill_error_exit(pid);
@@ -63,10 +82,13 @@ int main(int argc, char** argv) {
 
     printf("[DEBUG] Proccess %d has been stopped\n", pid);
 
-    rc = create_coredump(pid);
+    rc = create_coredump(pid, filename);
     if (rc < 0) {
         fprintf(stderr,
                 "Error occured while creating coredump file\n");
+    } else {
+        printf("[Success] Process %d has been dumped to file %s\n",
+               pid, filename);
     }
 
     ret = kill(pid, SIGCONT);
