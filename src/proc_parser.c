@@ -1,19 +1,25 @@
-#include "parser.h"
+#include "proc_parser.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <elf.h>
 
 #define stringify(x) #x
 #define tostring(x) stringify(x)
 
 #define PATH_SIZE 4096
-#define LINE_SIZE PATH_SIZE + 256 
+#define LINE_SIZE PATH_SIZE + 256
+#define CHUNK_SIZE 4096
 
 /*  Each line is formatted as follows:
  *  ffffbddf0000-ffffbdf78000 r-xp 00000000 fd:00 1836518                    /usr/lib/aarch64-linux-gnu/libc.so.6 
  */
 #define FORMAT_STRING "%lx-%lx %4s %lx %x:%x %lu %" tostring(PATH_SIZE) "[^\n]"
+
+extern ssize_t data_offset;
 
 maps_entry_t* parse_procfs_maps(const pid_t pid) {
     maps_entry_t* pid_maps = NULL;
@@ -135,4 +141,68 @@ void print_maps_list(const maps_entry_t* head) {
 
         entry = entry->next;
     }
+}
+
+int dump_memory_region(const int fd, const Elf64_Phdr* phdr, const pid_t pid) {
+    int mem_fd;
+    size_t len;
+    size_t offset;
+    char mem_path[32];
+    char buf[CHUNK_SIZE];
+
+    if (lseek(fd, data_offset, SEEK_SET) < 0) {
+        return -1;
+    }
+
+    snprintf(mem_path, sizeof(mem_path), "/proc/%d/mem", pid);
+
+    mem_fd = open(mem_path, O_RDONLY);
+    if (mem_fd < 0) {
+        return -1;
+    }
+
+    len = phdr->p_memsz;
+    offset = 0;
+
+    memset(buf, 0, sizeof(buf));
+    while (offset < len) {
+        ssize_t read_sz = (len - offset) > CHUNK_SIZE ? CHUNK_SIZE : len - offset;
+        ssize_t write_sz = 0;
+        ssize_t write_total_sz = 0;
+
+        if (phdr->p_flags & PF_R) {
+            read_sz = pread(mem_fd,
+                            buf,
+                            read_sz,
+                            phdr->p_vaddr + offset);
+
+            if (read_sz < 0) {
+                goto cleanup;
+            }
+        }
+
+        while (write_total_sz < read_sz) {
+            write_sz = write(fd,
+                             buf + write_total_sz,
+                             read_sz - write_total_sz);
+            if (write_sz < 0) {
+                goto cleanup;
+            }
+
+            write_total_sz += write_sz;
+        }
+
+        offset += read_sz;
+    }
+
+    data_offset += len;
+    data_offset = (data_offset + phdr->p_align - 1) & ~(phdr->p_align - 1);
+
+    close(mem_fd);
+
+    return 0;
+
+cleanup:
+    close(mem_fd);
+    return -1;
 }

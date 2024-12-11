@@ -1,9 +1,10 @@
-#ifndef PARSER_H
-#define PARSER_H
+#ifndef PROC_PARSER_H
+#define PROC_PARSER_H
 
 #include <stdint.h>
 #include <limits.h>
 #include <sys/types.h>
+#include <elf.h>
 
 typedef struct _maps_entry_t {
     uintptr_t start_addr;
@@ -30,6 +31,8 @@ typedef struct _maps_entry_t {
  *       or NULL if an error occurs during parsing.
  */
 maps_entry_t* parse_procfs_maps(const pid_t);
+
+int dump_memory_region(const int, const Elf64_Phdr*, const pid_t);
 
 void free_maps_list(maps_entry_t*);
 void print_maps_list(const maps_entry_t*);

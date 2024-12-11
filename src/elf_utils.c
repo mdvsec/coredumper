@@ -4,7 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
-#include "mem_reader.h"
+#include "proc_parser.h"
 
 #define PAGE_SIZE_DEFAULT 4096
 #define PT_NOTE_ALIGNMENT 4

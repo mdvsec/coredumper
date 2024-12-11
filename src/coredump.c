@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include "parser.h"
+#include "proc_parser.h"
 #include "elf_utils.h"
 
 int create_coredump(const pid_t pid, const char* filename) {
