@@ -9,14 +9,21 @@
 #define PAGE_SIZE_DEFAULT 4096
 #define PT_NOTE_ALIGNMENT 4
 
+static ssize_t dump_process_memory(const int, const maps_entry_t*, const pid_t);
+static ssize_t dump_process_info(const int, const maps_entry_t*, const pid_t);
 static Elf64_Phdr create_program_header_ptload(const maps_entry_t*);
 static Elf64_Phdr create_program_header_ptnote(size_t);
+static int write_phdr_entry(const int, const Elf64_Phdr*);
 static long get_pagesize(void);
 
-static uint64_t current_coredump_offset;
-extern size_t mem_region_count;
+off_t table_offset;
+off_t data_offset;
 
-int write_elf_header(const int fd) {
+int write_elf_header(const int fd, const ssize_t phdr_count) {
+    if (lseek(fd, 0, SEEK_SET) < 0) {
+        return -1;
+    }
+
     Elf64_Ehdr elf_hdr;
     memset(&elf_hdr, 0, sizeof(elf_hdr));
 
@@ -37,52 +44,41 @@ int write_elf_header(const int fd) {
     elf_hdr.e_phoff = sizeof(Elf64_Ehdr); 
     elf_hdr.e_ehsize = sizeof(Elf64_Ehdr);
     elf_hdr.e_phentsize = sizeof(Elf64_Phdr);
-    elf_hdr.e_phnum = mem_region_count + 1; // PT_NOTE added
+    elf_hdr.e_phnum = phdr_count;
 
-    current_coredump_offset = get_pagesize();
-
-    if (write(fd, &elf_hdr, sizeof(elf_hdr)) != sizeof(Elf64_Ehdr)) {
+    if (write(fd, &elf_hdr, sizeof(elf_hdr)) != sizeof(elf_hdr)) {
         return -1;
     }
 
     return 0;
 }
 
-int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_t pid) {
-    const maps_entry_t* entry;
-    off_t table_offset;
+ssize_t write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_t pid) {
+    ssize_t ptload_hdr_count;
+    ssize_t ptnote_hdr_count;
 
-    table_offset = lseek(fd, 0, SEEK_CUR);
+    // Reserve space for ELF header
+    table_offset = lseek(fd, sizeof(Elf64_Ehdr), SEEK_SET);
     if (table_offset < 0) {
         return -1;
     }
 
-    entry = head;
-    while (entry) {
-        Elf64_Phdr phdr;
+    data_offset = getpagesize();
 
-        phdr = create_program_header_ptload(entry);
-
-        if (lseek(fd, table_offset, SEEK_SET) < 0) {
-            return -1;
-        };
-
-        if (write(fd, &phdr, sizeof(Elf64_Phdr)) != sizeof(Elf64_Phdr)) {
-            return -1;
-        }
-
-        table_offset += sizeof(Elf64_Phdr);
-
-        if (lseek(fd, phdr.p_offset, SEEK_SET) < 0) {
-            return -1;
-        }
-
-        if (dump_memory_region(&phdr, fd, pid) < 0) {
-            return -1;
-        }
-
-        entry = entry->next;
+    ptload_hdr_count = dump_process_memory(fd, head, pid);
+    if (ptload_hdr_count < 0) {
+        return -1;
     }
+
+    ptnote_hdr_count = dump_process_info(fd, head, pid);
+    if (ptnote_hdr_count < 0) {
+        return -1;
+    }
+
+    // overflow
+    return ptload_hdr_count + ptnote_hdr_count;
+
+    /*
 
     Elf64_Phdr phdr = create_program_header_ptnote(0);
     if (lseek(fd, table_offset, SEEK_SET) < 0) {
@@ -92,6 +88,55 @@ int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_
     if (write(fd, &phdr, sizeof(Elf64_Phdr)) != sizeof(Elf64_Phdr)) {
         return -1;
     }
+
+    */
+}
+
+static ssize_t dump_process_memory(const int fd, const maps_entry_t* head, const pid_t pid) {
+    const maps_entry_t* entry;
+    ssize_t ptload_hdr_count;
+
+    ptload_hdr_count = 0;
+    entry = head;
+
+    while (entry) {
+        Elf64_Phdr phdr;
+
+        phdr = create_program_header_ptload(entry);
+
+        if (write_phdr_entry(fd, &phdr) < 0) {
+            return -1;
+        }
+
+        if (dump_memory_region(fd, &phdr, pid) < 0) {
+            return -1;
+        }
+
+        ptload_hdr_count++;
+        entry = entry->next;
+    }
+
+    return ptload_hdr_count;
+}
+
+static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const pid_t pid) {
+    ssize_t ptnote_hdr_count;
+
+    ptnote_hdr_count = 0;
+
+    return ptnote_hdr_count;
+}
+
+static int write_phdr_entry(const int fd, const Elf64_Phdr* phdr) {
+    if (lseek(fd, table_offset, SEEK_SET) < 0) {
+        return -1;
+    }
+
+    if (write(fd, phdr, sizeof(Elf64_Phdr)) != sizeof(Elf64_Phdr)) {
+        return -1;
+    }
+
+    table_offset += sizeof(Elf64_Phdr);
 
     return 0;
 }
@@ -117,10 +162,7 @@ static Elf64_Phdr create_program_header_ptload(const maps_entry_t* entry) {
     }
 
     phdr.p_align = get_pagesize();
-    phdr.p_offset = current_coredump_offset;
-
-    current_coredump_offset += phdr.p_memsz;
-    current_coredump_offset = (current_coredump_offset + phdr.p_align - 1) & ~(phdr.p_align - 1);
+    phdr.p_offset = data_offset;
 
     return phdr;
 }
@@ -136,10 +178,7 @@ static Elf64_Phdr create_program_header_ptnote(size_t note_sz) {
     phdr.p_memsz = 0;
     phdr.p_flags = 0;
     phdr.p_align = PT_NOTE_ALIGNMENT;
-    phdr.p_offset = current_coredump_offset;
-
-    current_coredump_offset += phdr.p_filesz;
-    current_coredump_offset = (current_coredump_offset + phdr.p_align - 1) & ~(phdr.p_align - 1);
+    phdr.p_offset = data_offset;
 
     return phdr;
 }
