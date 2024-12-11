@@ -10,12 +10,18 @@
 
 #define CHUNK_SIZE 4096
 
-int dump_memory_region(const Elf64_Phdr* phdr, const int fd, const pid_t pid) {
+extern ssize_t data_offset;
+
+int dump_memory_region(const int fd, const Elf64_Phdr* phdr, const pid_t pid) {
     int mem_fd;
     size_t len;
     size_t offset;
     char mem_path[32];
     char buf[CHUNK_SIZE];
+
+    if (lseek(fd, data_offset, SEEK_SET) < 0) {
+        return -1;
+    }
 
     snprintf(mem_path, sizeof(mem_path), "/proc/%d/mem", pid);
 
@@ -57,6 +63,9 @@ int dump_memory_region(const Elf64_Phdr* phdr, const int fd, const pid_t pid) {
 
         offset += read_sz;
     }
+
+    data_offset += len;
+    data_offset = (data_offset + phdr->p_align - 1) & ~(phdr->p_align - 1);
 
     close(mem_fd);
 

@@ -4,6 +4,6 @@
 #include <sys/types.h>
 #include <elf.h>
 
-int dump_memory_region(const Elf64_Phdr*, const int, const pid_t);
+int dump_memory_region(const int, const Elf64_Phdr*, const pid_t);
 
 #endif
