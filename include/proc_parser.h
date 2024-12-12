@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include <sys/types.h>
+#include <sys/procfs.h>
 #include <elf.h>
 
 typedef struct _maps_entry_t {
@@ -33,6 +34,7 @@ typedef struct _maps_entry_t {
 maps_entry_t* parse_procfs_maps(const pid_t);
 
 int dump_memory_region(const int, const Elf64_Phdr*, const pid_t);
+int collect_nt_prpsinfo(const pid_t, prpsinfo_t*);
 
 void free_maps_list(maps_entry_t*);
 void print_maps_list(const maps_entry_t*);
