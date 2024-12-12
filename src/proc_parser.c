@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <elf.h>
+#include <sys/procfs.h>
 
 #define stringify(x) #x
 #define tostring(x) stringify(x)
@@ -205,4 +206,89 @@ int dump_memory_region(const int fd, const Elf64_Phdr* phdr, const pid_t pid) {
 cleanup:
     close(mem_fd);
     return -1;
+}
+
+int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
+    FILE* status_file;
+    FILE* cmdline_file;
+    char status_path[32];
+    char cmdline_path[32];
+    char line[LINE_SIZE];
+    size_t len;
+
+    snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
+    snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%d/cmdline", pid);
+
+    status_file = fopen(status_path, "r");
+    if (!status_file) {
+        return -1;
+    }
+
+    memset(info, 0, sizeof(*info));
+
+    while (fgets(line, sizeof(line), status_file)) {
+        if (strncmp(line, "Name:", 5) == 0) {
+            sscanf(line, "Name: %15s", info->pr_fname);
+            continue;
+        }
+
+        if (strncmp(line, "State:", 6) == 0) {
+            sscanf(line, "State: %c", &info->pr_sname);
+            info->pr_zomb = (info->pr_sname == 'Z') ? 1 : 0;
+            info->pr_state = info->pr_sname;
+            continue;
+        }
+
+        if (strncmp(line, "Pid:", 4) == 0) {
+            sscanf(line, "Pid: %d", &info->pr_pid);
+            continue;
+        }
+
+        if (strncmp(line, "PPid:", 5) == 0) {
+            sscanf(line, "PPid: %d", &info->pr_ppid);
+            continue;
+        }
+
+        if (strncmp(line, "Uid:", 4) == 0) {
+            sscanf(line, "Uid: %d", &info->pr_uid);
+            continue;
+        }
+
+        if (strncmp(line, "Gid:", 4) == 0) {
+            sscanf(line, "Gid: %d", &info->pr_gid);
+            continue;
+        }
+    }
+
+    cmdline_file = fopen(cmdline_path, "r");
+    if (!cmdline_file) {
+        fclose(status_file);
+        return -1;
+    }
+
+    memset(line, 0, sizeof(line));
+    len = fread(line, 1, sizeof(line), cmdline_file);
+    if (len) {
+        for (size_t i = 0; i < len; i++) {
+            if (line[i] == 0) {
+                line[i] = ' ';
+            }
+        }
+
+        strncpy(info->pr_psargs, line, sizeof(info->pr_psargs) - 1);
+        info->pr_psargs[sizeof(info->pr_psargs) - 1] = 0;
+    }
+
+    /*
+    printf("DEBUG\nName:%s\nState:%c\nPid:%d\nArgs:%s\n",
+           info->pr_fname,
+           info->pr_sname,
+           info->pr_pid,
+           info->pr_psargs);
+    */
+
+    fclose(cmdline_file);
+    fclose(status_file);
+
+    return 0;
 }

@@ -4,13 +4,17 @@
 #include <string.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <sys/procfs.h>
 #include "proc_parser.h"
 
 #define PAGE_SIZE_DEFAULT 4096
 #define PT_NOTE_ALIGNMENT 4
 
+#define PADDING4(x) (((x + PT_NOTE_ALIGNMENT - 1) & ~(PT_NOTE_ALIGNMENT - 1)) - x)
+
 static ssize_t dump_process_memory(const int, const maps_entry_t*, const pid_t);
 static ssize_t dump_process_info(const int, const maps_entry_t*, const pid_t);
+static ssize_t write_nt_prpsinfo(const int, const prpsinfo_t*, const pid_t);
 static Elf64_Phdr create_program_header_ptload(const maps_entry_t*);
 static Elf64_Phdr create_program_header_ptnote(size_t);
 static int write_phdr_entry(const int, const Elf64_Phdr*);
@@ -77,19 +81,6 @@ ssize_t write_elf_program_headers(const int fd, const maps_entry_t* head, const 
 
     // overflow
     return ptload_hdr_count + ptnote_hdr_count;
-
-    /*
-
-    Elf64_Phdr phdr = create_program_header_ptnote(0);
-    if (lseek(fd, table_offset, SEEK_SET) < 0) {
-        return -1;
-    };
-
-    if (write(fd, &phdr, sizeof(Elf64_Phdr)) != sizeof(Elf64_Phdr)) {
-        return -1;
-    }
-
-    */
 }
 
 static ssize_t dump_process_memory(const int fd, const maps_entry_t* head, const pid_t pid) {
@@ -120,11 +111,89 @@ static ssize_t dump_process_memory(const int fd, const maps_entry_t* head, const
 }
 
 static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const pid_t pid) {
+    prpsinfo_t prpsinfo;
     ssize_t ptnote_hdr_count;
+    int written_hdr;
 
     ptnote_hdr_count = 0;
 
+    if (collect_nt_prpsinfo(pid, &prpsinfo) < 0) {
+        return -1;
+    }
+
+    written_hdr = write_nt_prpsinfo(fd, &prpsinfo, pid);
+    if (written_hdr < 0) {
+        return -1;
+    }
+    ptnote_hdr_count += written_hdr;
+
     return ptnote_hdr_count;
+}
+
+static ssize_t write_nt_prpsinfo(const int fd, const prpsinfo_t* info, const pid_t pid) {
+    Elf64_Phdr phdr;
+    Elf64_Nhdr nhdr;
+    size_t name_len;
+    size_t data_len;
+    size_t name_len_padding;
+    size_t data_len_padding;
+    size_t note_sz;
+    ssize_t written_hdr;
+    const char* note_name = "CORE";
+
+    written_hdr = 0;
+
+    name_len = strlen(note_name) + 1;
+    data_len = sizeof(*info);
+
+    name_len_padding = PADDING4(name_len);
+    data_len_padding = PADDING4(data_len);
+
+    note_sz = sizeof(nhdr) + name_len + name_len_padding + data_len + data_len_padding;
+    phdr = create_program_header_ptnote(note_sz);
+
+    if (write_phdr_entry(fd, &phdr) < 0) {
+        return -1;
+    }
+    written_hdr++;
+
+    nhdr.n_namesz = name_len;
+    nhdr.n_descsz = data_len;
+    nhdr.n_type = NT_PRPSINFO;
+
+    if (lseek(fd, data_offset, SEEK_SET) < 0) {
+        return -1;
+    }
+
+    if (write(fd, &nhdr, sizeof(nhdr)) != sizeof(nhdr)) {
+        return -1;
+    }
+
+    if (write(fd, note_name, name_len) != name_len) {
+        return -1;
+    }
+
+    if (name_len_padding) {
+        char p_bytes[4] = {0};
+        if (write(fd, p_bytes, name_len_padding) != name_len_padding) {
+            return -1;
+        }
+    }
+
+    if (write(fd, info, data_len) != data_len) {
+        return -1;
+    }
+
+    if (data_len_padding) {
+        char p_bytes[4] = {0};
+        if (write(fd, p_bytes, data_len_padding) != data_len_padding) {
+            return -1;
+        }
+    }
+
+    data_offset += note_sz;
+
+    return written_hdr;
 }
 
 static int write_phdr_entry(const int fd, const Elf64_Phdr* phdr) {
@@ -132,11 +201,11 @@ static int write_phdr_entry(const int fd, const Elf64_Phdr* phdr) {
         return -1;
     }
 
-    if (write(fd, phdr, sizeof(Elf64_Phdr)) != sizeof(Elf64_Phdr)) {
+    if (write(fd, phdr, sizeof(*phdr)) != sizeof(*phdr)) {
         return -1;
     }
 
-    table_offset += sizeof(Elf64_Phdr);
+    table_offset += sizeof(*phdr);
 
     return 0;
 }
