@@ -14,7 +14,9 @@
 
 static ssize_t dump_process_memory(const int, const maps_entry_t*, const pid_t);
 static ssize_t dump_process_info(const int, const maps_entry_t*, const pid_t);
-static ssize_t write_nt_prpsinfo(const int, const prpsinfo_t*, const pid_t);
+static ssize_t write_nt_prpsinfo(const int, const prpsinfo_t*);
+static ssize_t write_threads_state(const int, const thread_state_t*);
+static ssize_t write_note_data(const int, const void*, const int, const char*);
 static Elf64_Phdr create_program_header_ptload(const maps_entry_t*);
 static Elf64_Phdr create_program_header_ptnote(size_t);
 static int write_phdr_entry(const int, const Elf64_Phdr*);
@@ -39,11 +41,11 @@ int write_elf_header(const int fd, const ssize_t phdr_count) {
     elf_hdr.e_ident[EI_CLASS] = ELFCLASS64;
     elf_hdr.e_ident[EI_DATA] = ELFDATA2LSB;
     elf_hdr.e_ident[EI_VERSION] = EV_CURRENT;
-    elf_hdr.e_ident[EI_OSABI] = ELFOSABI_SYSV;
+    elf_hdr.e_ident[EI_OSABI] = ELFOSABI_NONE;
     elf_hdr.e_ident[EI_ABIVERSION] = 0;
 
     elf_hdr.e_type = ET_CORE;
-    elf_hdr.e_machine = EM_X86_64;
+    elf_hdr.e_machine = EM_AARCH64;
     elf_hdr.e_version = EV_CURRENT;
     elf_hdr.e_phoff = sizeof(Elf64_Ehdr); 
     elf_hdr.e_ehsize = sizeof(Elf64_Ehdr);
@@ -79,7 +81,6 @@ ssize_t write_elf_program_headers(const int fd, const maps_entry_t* head, const 
         return -1;
     }
 
-    // overflow
     return ptload_hdr_count + ptnote_hdr_count;
 }
 
@@ -112,6 +113,7 @@ static ssize_t dump_process_memory(const int fd, const maps_entry_t* head, const
 
 static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const pid_t pid) {
     prpsinfo_t prpsinfo;
+    thread_state_t* threads_state;
     ssize_t ptnote_hdr_count;
     int written_hdr;
 
@@ -121,45 +123,92 @@ static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const p
         return -1;
     }
 
-    written_hdr = write_nt_prpsinfo(fd, &prpsinfo, pid);
+    written_hdr = write_nt_prpsinfo(fd, &prpsinfo);
     if (written_hdr < 0) {
         return -1;
     }
     ptnote_hdr_count += written_hdr;
 
+    threads_state = collect_threads_state(pid);
+    if (!threads_state) {
+        return -1;
+    }
+
+    written_hdr = write_threads_state(fd, threads_state);
+    if (written_hdr < 0) {
+        return -1;
+    }
+    ptnote_hdr_count += written_hdr;
+
+    free_state_list(threads_state);
+
     return ptnote_hdr_count;
 }
 
-static ssize_t write_nt_prpsinfo(const int fd, const prpsinfo_t* info, const pid_t pid) {
+static ssize_t write_nt_prpsinfo(const int fd, const prpsinfo_t* info) {
     Elf64_Phdr phdr;
+    ssize_t write_sz;
+    ssize_t written_hdr;
+    off_t tmp_data_offset;
+
+    written_hdr = 0;
+    tmp_data_offset = data_offset;
+    write_sz = write_note_data(fd, info, NT_PRPSINFO, "CORE");
+    if (write_sz < 0) {
+        return -1;
+    }
+
+    data_offset = tmp_data_offset;
+    phdr = create_program_header_ptnote((size_t) write_sz);
+    if (write_phdr_entry(fd, &phdr) < 0) {
+        return -1;
+    }
+    data_offset += write_sz;
+
+    written_hdr++;
+
+    return written_hdr;
+}
+
+static ssize_t write_note_data(const int fd, const void* data, const int type, const char* name) {
     Elf64_Nhdr nhdr;
     size_t name_len;
     size_t data_len;
     size_t name_len_padding;
     size_t data_len_padding;
     size_t note_sz;
-    ssize_t written_hdr;
-    const char* note_name = "CORE";
-
-    written_hdr = 0;
+    const char* note_name = name;
 
     name_len = strlen(note_name) + 1;
-    data_len = sizeof(*info);
+    switch (type) {
+        case NT_PRPSINFO:
+            data_len = sizeof(*((prpsinfo_t*) data));
+            break;
+        case NT_PRSTATUS:
+            data_len = sizeof(*((prstatus_t*) data));
+            break;
+        case NT_FPREGSET:
+            data_len = sizeof(*((elf_fpregset_t*) data));
+            break;
+        case NT_ARM_PAC_MASK:
+            data_len = sizeof(*((elf_arm_pac_mask_t*) data));
+            break;
+        case NT_SIGINFO:
+            data_len = sizeof(*((siginfo_t*) data));
+            break;
+        default:
+            return -1;
+    }
 
     name_len_padding = PADDING4(name_len);
     data_len_padding = PADDING4(data_len);
 
     note_sz = sizeof(nhdr) + name_len + name_len_padding + data_len + data_len_padding;
-    phdr = create_program_header_ptnote(note_sz);
 
-    if (write_phdr_entry(fd, &phdr) < 0) {
-        return -1;
-    }
-    written_hdr++;
-
+    memset(&nhdr, 0, sizeof(nhdr));
     nhdr.n_namesz = name_len;
     nhdr.n_descsz = data_len;
-    nhdr.n_type = NT_PRPSINFO;
+    nhdr.n_type = type;
 
     if (lseek(fd, data_offset, SEEK_SET) < 0) {
         return -1;
@@ -174,24 +223,79 @@ static ssize_t write_nt_prpsinfo(const int fd, const prpsinfo_t* info, const pid
     }
 
     if (name_len_padding) {
-        char p_bytes[4] = {0};
+        char p_bytes[PT_NOTE_ALIGNMENT] = {0};
         if (write(fd, p_bytes, name_len_padding) != name_len_padding) {
             return -1;
         }
     }
 
-    if (write(fd, info, data_len) != data_len) {
+    if (write(fd, data, data_len) != data_len) {
         return -1;
     }
 
     if (data_len_padding) {
-        char p_bytes[4] = {0};
+        char p_bytes[PT_NOTE_ALIGNMENT] = {0};
         if (write(fd, p_bytes, data_len_padding) != data_len_padding) {
             return -1;
         }
     }
 
     data_offset += note_sz;
+
+    return note_sz;
+}
+
+// It definitely has to be rewritten
+static ssize_t write_threads_state(const int fd, const thread_state_t* head) {
+    const thread_state_t* entry;
+    size_t note_sz;
+    ssize_t written_hdr;
+
+    written_hdr = 0;
+    entry = head;
+
+    while (entry) {
+        Elf64_Phdr phdr;
+        ssize_t write_sz;
+        off_t tmp_data_offset = data_offset;
+
+        note_sz = 0;
+
+        write_sz = write_note_data(fd, &entry->prstatus, NT_PRSTATUS, "CORE");
+        if (write_sz < 0) {
+            return -1;
+        }
+        note_sz += write_sz;
+
+        write_sz = write_note_data(fd, &entry->fpregs, NT_FPREGSET, "CORE");
+        if (write_sz < 0) {
+            return -1;
+        }
+        note_sz += write_sz;
+
+        write_sz = write_note_data(fd, &entry->pac_mask, NT_ARM_PAC_MASK, "LINUX");
+        if (write_sz < 0) {
+            return -1;
+        }
+        note_sz += write_sz;
+
+        write_sz = write_note_data(fd, &entry->siginfo, NT_SIGINFO, "CORE");
+        if (write_sz < 0) {
+            return -1;
+        }
+        note_sz += write_sz;
+
+        data_offset = tmp_data_offset;
+        phdr = create_program_header_ptnote(note_sz);
+        if (write_phdr_entry(fd, &phdr) < 0) {
+            return -1;
+        }
+        data_offset = lseek(fd, 0, SEEK_CUR);
+
+        written_hdr++;
+
+        entry = entry->next;
+    }
 
     return written_hdr;
 }
