@@ -40,7 +40,8 @@ int main(int argc, char** argv) {
     char filename[PATHNAME_MAX];
     int custom_filename = 0;
     int opt;
-    int ret, rc;
+    int status;
+    int ret;
     pid_t pid = 0;
 
     while ((opt = getopt(argc, argv, "p:o:")) > 0) {
@@ -75,15 +76,15 @@ int main(int argc, char** argv) {
         snprintf(filename, sizeof(filename), "%d_coredump", pid);
     }
 
-    ret = kill(pid, SIGSTOP);
-    if (ret < 0) {
+    status = kill(pid, SIGSTOP);
+    if (status < 0) {
         handle_kill_error_exit(pid);
     }
 
     printf("[DEBUG] Proccess %d has been stopped\n", pid);
 
-    rc = create_coredump(pid, filename);
-    if (rc < 0) {
+    ret = create_coredump(pid, filename);
+    if (ret < 0) {
         fprintf(stderr,
                 "Error occured while creating coredump file\n");
     } else {
@@ -91,12 +92,12 @@ int main(int argc, char** argv) {
                pid, filename);
     }
 
-    ret = kill(pid, SIGCONT);
-    if (ret < 0) {
+    status = kill(pid, SIGCONT);
+    if (status < 0) {
         handle_kill_error_exit(pid);
     }
 
     printf("[DEBUG] Process %d has been resumed\n", pid);
 
-    return rc;
+    return ret;
 }
