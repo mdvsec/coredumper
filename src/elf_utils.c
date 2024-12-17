@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sys/procfs.h>
+#include <sys/uio.h>
 #include "proc_parser.h"
 
 #define PAGE_SIZE_DEFAULT 4096
@@ -177,9 +178,10 @@ static ssize_t write_note_data(const int fd, const void* data, const int type, c
     size_t name_len_padding;
     size_t data_len_padding;
     size_t note_sz;
-    const char* note_name = name;
+    struct iovec iov[5];
+    char p_bytes[PT_NOTE_ALIGNMENT] = {0};
 
-    name_len = strlen(note_name) + 1;
+    name_len = strlen(name) + 1;
     switch (type) {
         case NT_PRPSINFO:
             data_len = sizeof(*((prpsinfo_t*) data));
@@ -210,34 +212,28 @@ static ssize_t write_note_data(const int fd, const void* data, const int type, c
     nhdr.n_descsz = data_len;
     nhdr.n_type = type;
 
+    memset(iov, 0, sizeof(iov));
+    iov[0].iov_base = &nhdr;
+    iov[0].iov_len = sizeof(nhdr);
+
+    iov[1].iov_base = (void*) name;
+    iov[1].iov_len = name_len;
+
+    iov[2].iov_base = p_bytes;
+    iov[2].iov_len = name_len_padding;
+
+    iov[3].iov_base = (void*) data;
+    iov[3].iov_len = data_len;
+
+    iov[4].iov_base = p_bytes;
+    iov[4].iov_len = data_len_padding;
+
     if (lseek(fd, data_offset, SEEK_SET) < 0) {
         return -1;
     }
 
-    if (write(fd, &nhdr, sizeof(nhdr)) != sizeof(nhdr)) {
+    if (writev(fd, iov, 5) != note_sz) {
         return -1;
-    }
-
-    if (write(fd, note_name, name_len) != name_len) {
-        return -1;
-    }
-
-    if (name_len_padding) {
-        char p_bytes[PT_NOTE_ALIGNMENT] = {0};
-        if (write(fd, p_bytes, name_len_padding) != name_len_padding) {
-            return -1;
-        }
-    }
-
-    if (write(fd, data, data_len) != data_len) {
-        return -1;
-    }
-
-    if (data_len_padding) {
-        char p_bytes[PT_NOTE_ALIGNMENT] = {0};
-        if (write(fd, p_bytes, data_len_padding) != data_len_padding) {
-            return -1;
-        }
     }
 
     data_offset += note_sz;
