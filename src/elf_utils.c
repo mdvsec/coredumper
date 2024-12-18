@@ -16,8 +16,9 @@
 static ssize_t dump_process_memory(const int, const maps_entry_t*, const pid_t);
 static ssize_t dump_process_info(const int, const maps_entry_t*, const pid_t);
 static ssize_t write_nt_prpsinfo(const int, const prpsinfo_t*);
+static ssize_t write_nt_auxv(const int, const Elf64_auxv_t*, const size_t);
 static ssize_t write_threads_state(const int, const thread_state_t*);
-static ssize_t write_note_data(const int, const void*, const int, const char*);
+static ssize_t write_note_data(const int, const void*, const size_t, const int, const char*);
 static Elf64_Phdr create_program_header_ptload(const maps_entry_t*);
 static Elf64_Phdr create_program_header_ptnote(size_t);
 static int write_phdr_entry(const int, const Elf64_Phdr*);
@@ -115,6 +116,8 @@ static ssize_t dump_process_memory(const int fd, const maps_entry_t* head, const
 static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const pid_t pid) {
     prpsinfo_t prpsinfo;
     thread_state_t* threads_state;
+    Elf64_auxv_t* auxv_buf;
+    size_t auxv_size;
     ssize_t ptnote_hdr_count;
     int written_hdr;
 
@@ -137,10 +140,26 @@ static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const p
 
     written_hdr = write_threads_state(fd, threads_state);
     if (written_hdr < 0) {
+        free_state_list(threads_state);
         return -1;
     }
     ptnote_hdr_count += written_hdr;
 
+    auxv_buf = collect_nt_auxv(pid, &auxv_size);
+    if (!auxv_buf) {
+        free_state_list(threads_state);
+        return -1;
+    }
+
+    written_hdr = write_nt_auxv(fd, auxv_buf, auxv_size);
+    if (written_hdr < 0) {
+        free(auxv_buf);
+        free_state_list(threads_state);
+        return -1;
+    }
+    ptnote_hdr_count += written_hdr;
+
+    free(auxv_buf);
     free_state_list(threads_state);
 
     return ptnote_hdr_count;
@@ -154,7 +173,7 @@ static ssize_t write_nt_prpsinfo(const int fd, const prpsinfo_t* info) {
 
     written_hdr = 0;
     tmp_data_offset = data_offset;
-    write_sz = write_note_data(fd, info, NT_PRPSINFO, "CORE");
+    write_sz = write_note_data(fd, info, sizeof(*info), NT_PRPSINFO, "CORE");
     if (write_sz < 0) {
         return -1;
     }
@@ -171,10 +190,34 @@ static ssize_t write_nt_prpsinfo(const int fd, const prpsinfo_t* info) {
     return written_hdr;
 }
 
-static ssize_t write_note_data(const int fd, const void* data, const int type, const char* name) {
+static ssize_t write_nt_auxv(const int fd, const Elf64_auxv_t* auxv_buf, const size_t len) {
+    Elf64_Phdr phdr;
+    ssize_t write_sz;
+    ssize_t written_hdr;
+    off_t tmp_data_offset;
+
+    written_hdr = 0;
+    tmp_data_offset = data_offset;
+    write_sz = write_note_data(fd, auxv_buf, len, NT_AUXV, "CORE");
+    if (write_sz < 0) {
+        return -1;
+    }
+
+    data_offset = tmp_data_offset;
+    phdr = create_program_header_ptnote((size_t) write_sz);
+    if (write_phdr_entry(fd, &phdr) < 0) {
+        return -1;
+    }
+    data_offset += write_sz;
+
+    written_hdr++;
+
+    return written_hdr;
+}
+
+static ssize_t write_note_data(const int fd, const void* data, const size_t data_len, const int type, const char* name) {
     Elf64_Nhdr nhdr;
     size_t name_len;
-    size_t data_len;
     size_t name_len_padding;
     size_t data_len_padding;
     size_t note_sz;
@@ -182,25 +225,6 @@ static ssize_t write_note_data(const int fd, const void* data, const int type, c
     char p_bytes[PT_NOTE_ALIGNMENT] = {0};
 
     name_len = strlen(name) + 1;
-    switch (type) {
-        case NT_PRPSINFO:
-            data_len = sizeof(*((prpsinfo_t*) data));
-            break;
-        case NT_PRSTATUS:
-            data_len = sizeof(*((prstatus_t*) data));
-            break;
-        case NT_FPREGSET:
-            data_len = sizeof(*((elf_fpregset_t*) data));
-            break;
-        case NT_ARM_PAC_MASK:
-            data_len = sizeof(*((elf_arm_pac_mask_t*) data));
-            break;
-        case NT_SIGINFO:
-            data_len = sizeof(*((siginfo_t*) data));
-            break;
-        default:
-            return -1;
-    }
 
     name_len_padding = PADDING4(name_len);
     data_len_padding = PADDING4(data_len);
@@ -257,25 +281,25 @@ static ssize_t write_threads_state(const int fd, const thread_state_t* head) {
 
         note_sz = 0;
 
-        write_sz = write_note_data(fd, &entry->prstatus, NT_PRSTATUS, "CORE");
+        write_sz = write_note_data(fd, &entry->prstatus, sizeof(entry->prstatus), NT_PRSTATUS, "CORE");
         if (write_sz < 0) {
             return -1;
         }
         note_sz += write_sz;
 
-        write_sz = write_note_data(fd, &entry->fpregs, NT_FPREGSET, "CORE");
+        write_sz = write_note_data(fd, &entry->fpregs, sizeof(entry->fpregs), NT_FPREGSET, "CORE");
         if (write_sz < 0) {
             return -1;
         }
         note_sz += write_sz;
 
-        write_sz = write_note_data(fd, &entry->pac_mask, NT_ARM_PAC_MASK, "LINUX");
+        write_sz = write_note_data(fd, &entry->pac_mask, sizeof(entry->pac_mask), NT_ARM_PAC_MASK, "LINUX");
         if (write_sz < 0) {
             return -1;
         }
         note_sz += write_sz;
 
-        write_sz = write_note_data(fd, &entry->siginfo, NT_SIGINFO, "CORE");
+        write_sz = write_note_data(fd, &entry->siginfo, sizeof(entry->siginfo), NT_SIGINFO, "CORE");
         if (write_sz < 0) {
             return -1;
         }
@@ -286,7 +310,7 @@ static ssize_t write_threads_state(const int fd, const thread_state_t* head) {
         if (write_phdr_entry(fd, &phdr) < 0) {
             return -1;
         }
-        data_offset = lseek(fd, 0, SEEK_CUR);
+        data_offset += note_sz;
 
         written_hdr++;
 
