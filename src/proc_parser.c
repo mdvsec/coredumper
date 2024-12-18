@@ -31,7 +31,7 @@ static int collect_siginfo(const pid_t, siginfo_t*);
 extern ssize_t data_offset;
 
 static int is_readable(const maps_entry_t* entry) {
-    return entry->perms[0] == 'r' && strcmp(entry->pathname, "[vvar]");
+    return entry->len && entry->perms[0] == 'r' && strcmp(entry->pathname, "[vvar]");
 }
 
 maps_entry_t* parse_procfs_maps(const pid_t pid) {
@@ -542,4 +542,50 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
     fclose(status_file);
 
     return 0;
+}
+
+Elf64_auxv_t* collect_nt_auxv(const pid_t pid, size_t* size) {
+    Elf64_auxv_t* auxv_buf;
+    int auxv_fd;
+    char auxv_path[32];
+    char buf[512];
+    size_t bytes_read;
+    size_t total_sz;
+
+    snprintf(auxv_path, sizeof(auxv_path), "/proc/%d/auxv", pid);
+
+    auxv_fd = open(auxv_path, O_RDONLY);
+    if (auxv_fd < 0) {
+        return NULL;
+    }
+
+    auxv_buf = NULL;
+    total_sz = 0;
+    bytes_read = 0;
+
+    while ((bytes_read = read(auxv_fd, buf, sizeof(buf))) > 0) {
+        Elf64_auxv_t* tmp_buf = realloc(auxv_buf, total_sz + bytes_read);
+        if (!tmp_buf) {
+            free(auxv_buf);
+            close(auxv_fd);
+            return NULL;
+        }
+
+        auxv_buf = tmp_buf;
+        memcpy((char*) auxv_buf + total_sz, buf, bytes_read);
+
+        total_sz += bytes_read;
+    }
+
+    if (bytes_read < 0 || total_sz == 0) {
+        free(auxv_buf);
+        close(auxv_fd);
+        return NULL;
+    }
+
+    *size = total_sz;
+
+    close(auxv_fd);
+
+    return auxv_buf;
 }

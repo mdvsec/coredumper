@@ -51,6 +51,7 @@ maps_entry_t* parse_procfs_maps(const pid_t);
 int dump_memory_region(const int, const Elf64_Phdr*, const pid_t);
 int collect_nt_prpsinfo(const pid_t, prpsinfo_t*);
 thread_state_t* collect_threads_state(const pid_t);
+Elf64_auxv_t* collect_nt_auxv(const pid_t, size_t*);
 
 void free_maps_list(maps_entry_t*);
 void print_maps_list(const maps_entry_t*);
