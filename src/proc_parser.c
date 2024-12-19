@@ -31,7 +31,7 @@ static int collect_siginfo(const pid_t, siginfo_t*);
 extern ssize_t data_offset;
 
 static int is_readable(const maps_entry_t* entry) {
-    return entry->len && entry->perms[0] == 'r' && strcmp(entry->pathname, "[vvar]");
+    return entry->perms[0] == 'r' && strcmp(entry->pathname, "[vvar]");
 }
 
 maps_entry_t* parse_procfs_maps(const pid_t pid) {
