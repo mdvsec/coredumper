@@ -17,6 +17,7 @@ static ssize_t dump_process_memory(const int, const maps_entry_t*, const pid_t);
 static ssize_t dump_process_info(const int, const maps_entry_t*, const pid_t);
 static ssize_t write_nt_prpsinfo(const int, const prpsinfo_t*);
 static ssize_t write_nt_auxv(const int, const Elf64_auxv_t*, const size_t);
+static ssize_t write_nt_file(const int, const maps_entry_t*);
 static ssize_t write_threads_state(const int, const thread_state_t*);
 static ssize_t write_note_data(const int, const void*, const size_t, const int, const char*);
 static Elf64_Phdr create_program_header_ptload(const maps_entry_t*);
@@ -159,6 +160,14 @@ static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const p
     }
     ptnote_hdr_count += written_hdr;
 
+    written_hdr = write_nt_file(fd, head);
+    if (written_hdr < 0) {
+        free(auxv_buf);
+        free_state_list(threads_state);
+        return -1;
+    }
+    ptnote_hdr_count += written_hdr;
+
     free(auxv_buf);
     free_state_list(threads_state);
 
@@ -211,6 +220,121 @@ static ssize_t write_nt_auxv(const int fd, const Elf64_auxv_t* auxv_buf, const s
     data_offset += write_sz;
 
     written_hdr++;
+
+    return written_hdr;
+}
+
+static ssize_t write_nt_file(const int fd, const maps_entry_t* head) {
+    Elf64_Phdr phdr;
+    ssize_t written_hdr;
+    off_t tmp_data_offset;
+    size_t desc_sz;
+    size_t write_sz;
+    size_t region_count;
+    maps_entry_t* entry;
+    void* data_buf;
+    size_t region_offset;
+    size_t name_offset;
+    const char anon_name[]= "[anonymous]";
+
+    desc_sz = sizeof(uint64_t) * 2; /* count, pagesize */
+    region_count = 0;
+    entry = (maps_entry_t*) head;
+    while (entry) {
+        if (entry->inode) {
+            size_t entry_name_len = entry->len ? strlen(entry->pathname) + 1 : sizeof(anon_name);
+            desc_sz += sizeof(uint64_t) * 3 + entry_name_len; /* start_addr, size, offset */
+
+            region_count++;
+        }
+
+        entry = entry->next;
+    }
+
+    data_buf = malloc(desc_sz);
+    if (!data_buf) {
+        return -1;
+    }
+
+    memset(data_buf, 0, desc_sz);
+
+    *(uint64_t*) data_buf = (uint64_t) region_count;
+    *(uint64_t*) ((char*) data_buf + sizeof(uint64_t)) = (uint64_t) 1; /* Required by GDB */
+
+    region_offset = sizeof(uint64_t) * 2;
+    name_offset = region_offset + region_count * sizeof(uint64_t) * 3;
+
+    entry = (maps_entry_t*) head;
+    while (entry) {
+        if (entry->inode) {
+            const char* entry_name;
+            size_t entry_name_len;
+
+            *(uint64_t*) ((char*) data_buf + region_offset) = (uint64_t) entry->start_addr;
+            region_offset += sizeof(uint64_t);
+
+            *(uint64_t*) ((char*) data_buf + region_offset) = (uint64_t) entry->end_addr;
+            region_offset += sizeof(uint64_t);
+
+            *(uint64_t*) ((char*) data_buf + region_offset) = (uint64_t) entry->offset;
+            region_offset += sizeof(uint64_t);
+
+            entry_name = entry->len ? entry->pathname : anon_name;
+            entry_name_len = strlen(entry_name) + 1;
+
+            strcpy((char*) data_buf + name_offset, entry_name);
+            name_offset += entry_name_len;
+        }
+
+        entry = entry->next;
+    }
+
+    /*
+    const uint64_t* ptr = (const uint64_t*) data_buf;
+    uint64_t count = *ptr++;
+    uint64_t pgsz = *ptr++;
+
+    printf("Region count: %ld\nPage size: %ld\n", count, pgsz);
+
+    const uint64_t* region_ptr = ptr;
+
+    const char* name_ptr = (const char*) data_buf + sizeof(uint64_t) * 2 + (region_count * sizeof(uint64_t) * 3);
+
+    printf("\nRegions:\n");
+    printf("Start Address | End Address | Offset       | Name\n");
+    printf("-------------------------------------------------\n");
+
+    for (size_t i = 0; i < region_count; i++) {
+        uint64_t start_addr = *region_ptr++;
+        uint64_t end_addr = *region_ptr++;
+        uint64_t offset = *region_ptr++;
+
+        printf("%12lx | %12lx | %12lx | %s\n", start_addr, end_addr, offset, name_ptr);
+
+        name_ptr += strlen(name_ptr) + 1;
+    }
+
+    */
+
+    written_hdr = 0;
+    tmp_data_offset = data_offset;
+
+    write_sz = write_note_data(fd, data_buf, desc_sz, NT_FILE, "CORE");
+    if (write_sz < 0) {
+        return -1;
+    }
+
+    data_offset = tmp_data_offset;
+
+    phdr = create_program_header_ptnote((size_t) write_sz);
+    if (write_phdr_entry(fd, &phdr) < 0) {
+        return -1;
+    }
+    data_offset += write_sz;
+
+    written_hdr++;
+
+    free(data_buf);
 
     return written_hdr;
 }
