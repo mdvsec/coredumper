@@ -15,9 +15,7 @@
 
 static ssize_t dump_process_memory(const int, const maps_entry_t*, const pid_t);
 static ssize_t dump_process_info(const int, const maps_entry_t*, const pid_t);
-static ssize_t write_nt_prpsinfo(const int, const prpsinfo_t*);
-static ssize_t write_nt_auxv(const int, const Elf64_auxv_t*, const size_t);
-static ssize_t write_nt_file(const int, void*, size_t);
+static ssize_t write_generic_note(const int, const void*, const size_t, const int, const char*);
 static ssize_t write_threads_state(const int, const thread_state_t*);
 static ssize_t write_note_data(const int, const void*, const size_t, const int, const char*);
 static Elf64_Phdr create_program_header_ptload(const maps_entry_t*);
@@ -130,7 +128,7 @@ static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const p
         return -1;
     }
 
-    written_hdr = write_nt_prpsinfo(fd, &prpsinfo);
+    written_hdr = write_generic_note(fd, &prpsinfo, sizeof(prpsinfo), NT_PRPSINFO, "CORE");
     if (written_hdr < 0) {
         return -1;
     }
@@ -155,7 +153,7 @@ static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const p
         return -1;
     }
 
-    written_hdr = write_nt_auxv(fd, auxv_buf, auxv_sz);
+    written_hdr = write_generic_note(fd, auxv_buf, auxv_sz, NT_AUXV, "CORE");
     if (written_hdr < 0) {
         free(auxv_buf);
         free_state_list(threads_state);
@@ -171,7 +169,7 @@ static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const p
         return -1;
     }
 
-    written_hdr = write_nt_file(fd, nt_file_buf, nt_file_sz);
+    written_hdr = write_generic_note(fd, nt_file_buf, nt_file_sz, NT_FILE, "CORE");
     if (written_hdr < 0) {
         free(nt_file_buf);
         free(auxv_buf);
@@ -187,7 +185,7 @@ static ssize_t dump_process_info(const int fd, const maps_entry_t* head, const p
     return ptnote_hdr_count;
 }
 
-static ssize_t write_nt_prpsinfo(const int fd, const prpsinfo_t* info) {
+static ssize_t write_generic_note(const int fd, const void* buf, const size_t buf_sz, const int type, const char* name) {
     Elf64_Phdr phdr;
     ssize_t write_sz;
     ssize_t written_hdr;
@@ -195,64 +193,12 @@ static ssize_t write_nt_prpsinfo(const int fd, const prpsinfo_t* info) {
 
     written_hdr = 0;
     tmp_data_offset = data_offset;
-    write_sz = write_note_data(fd, info, sizeof(*info), NT_PRPSINFO, "CORE");
+    write_sz = write_note_data(fd, buf, buf_sz, type, name);
     if (write_sz < 0) {
         return -1;
     }
 
     data_offset = tmp_data_offset;
-    phdr = create_program_header_ptnote((size_t) write_sz);
-    if (write_phdr_entry(fd, &phdr) < 0) {
-        return -1;
-    }
-    data_offset += write_sz;
-
-    written_hdr++;
-
-    return written_hdr;
-}
-
-static ssize_t write_nt_auxv(const int fd, const Elf64_auxv_t* auxv_buf, const size_t len) {
-    Elf64_Phdr phdr;
-    ssize_t write_sz;
-    ssize_t written_hdr;
-    off_t tmp_data_offset;
-
-    written_hdr = 0;
-    tmp_data_offset = data_offset;
-    write_sz = write_note_data(fd, auxv_buf, len, NT_AUXV, "CORE");
-    if (write_sz < 0) {
-        return -1;
-    }
-
-    data_offset = tmp_data_offset;
-    phdr = create_program_header_ptnote((size_t) write_sz);
-    if (write_phdr_entry(fd, &phdr) < 0) {
-        return -1;
-    }
-    data_offset += write_sz;
-
-    written_hdr++;
-
-    return written_hdr;
-}
-
-static ssize_t write_nt_file(const int fd, void* buf, size_t buf_sz) {
-    Elf64_Phdr phdr;
-    ssize_t written_hdr;
-    off_t tmp_data_offset;
-    size_t write_sz;
-
-    written_hdr = 0;
-    tmp_data_offset = data_offset;
-
-    write_sz = write_note_data(fd, buf, buf_sz, NT_FILE, "CORE");
-    if (write_sz < 0) {
-        return -1;
-    }
-
-    data_offset = tmp_data_offset;
-
     phdr = create_program_header_ptnote((size_t) write_sz);
     if (write_phdr_entry(fd, &phdr) < 0) {
         return -1;
