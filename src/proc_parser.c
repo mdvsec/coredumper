@@ -14,6 +14,9 @@
 #define stringify(x) #x
 #define tostring(x) stringify(x)
 
+#define ALIGN_UP(value, alignment) \
+        ((value + (alignment) - 1) & ~((alignment) - 1))
+
 #define PATH_SIZE 4096
 #define LINE_SIZE PATH_SIZE + 256
 #define CHUNK_SIZE 4096
@@ -27,8 +30,6 @@ static int collect_prstatus(const pid_t, const pid_t, prstatus_t*);
 static int collect_fpregs(const pid_t, elf_fpregset_t*);
 static int collect_arm_pac_mask(const pid_t, elf_arm_pac_mask_t*);
 static int collect_siginfo(const pid_t, siginfo_t*);
-
-extern ssize_t data_offset;
 
 static int is_readable(const maps_entry_t* entry) {
     return entry->perms[0] == 'r' && strcmp(entry->pathname, "[vvar]");
@@ -160,14 +161,14 @@ void print_maps_list(const maps_entry_t* head) {
     }
 }
 
-int dump_memory_region(const int fd, const Elf64_Phdr* phdr, const pid_t pid) {
+int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr, const pid_t pid) {
     int mem_fd;
     size_t len;
     size_t offset;
     char mem_path[32];
     char buf[CHUNK_SIZE];
 
-    if (lseek(fd, data_offset, SEEK_SET) < 0) {
+    if (lseek(fd, *data_offset, SEEK_SET) < 0) {
         return -1;
     }
 
@@ -212,8 +213,8 @@ int dump_memory_region(const int fd, const Elf64_Phdr* phdr, const pid_t pid) {
         offset += read_sz;
     }
 
-    data_offset += len;
-    data_offset = (data_offset + phdr->p_align - 1) & ~(phdr->p_align - 1);
+    *data_offset += len;
+    *data_offset = ALIGN_UP(*data_offset, phdr->p_align);
 
     close(mem_fd);
 
@@ -309,7 +310,7 @@ void free_state_list(thread_state_t* head) {
 void print_state_list(const thread_state_t* head) {
     const thread_state_t* entry = head;
     while (entry) {
-        // print debug messages
+        /* print debug messages */
         entry = entry->next;
     }
 }
@@ -367,7 +368,7 @@ static int collect_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstat
         return -1;
     }
 
-    // Signal may be absent
+    /* Signal may be absent */
     ptrace(PTRACE_GETSIGINFO, tid, NULL, &prstatus->pr_info);
     prstatus->pr_cursig = prstatus->pr_info.si_signo;
 
@@ -430,7 +431,7 @@ static int collect_siginfo(const pid_t tid, siginfo_t* siginfo) {
         return -1;
     }
 
-    // Signals may be absent
+    /* Signals may be absent */
     ptrace(PTRACE_GETSIGINFO, tid, NULL, siginfo);
 
     if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {

@@ -48,7 +48,7 @@ typedef struct _thread_state_t {
  */
 maps_entry_t* parse_procfs_maps(const pid_t);
 
-int dump_memory_region(const int, const Elf64_Phdr*, const pid_t);
+int dump_memory_region(const int, size_t*, const Elf64_Phdr*, const pid_t);
 int collect_nt_prpsinfo(const pid_t, prpsinfo_t*);
 int collect_threads_state(const pid_t pid, thread_state_t** head);
 int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz);
