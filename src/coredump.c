@@ -14,6 +14,8 @@ int create_coredump(const pid_t pid, const char* filename) {
     int coredump_fd;
     int ret;
 
+    pid_maps = NULL;
+
     coredump_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (coredump_fd < 0) {
         fprintf(stderr,
@@ -27,8 +29,7 @@ int create_coredump(const pid_t pid, const char* filename) {
         fprintf(stderr,
                 "Error occured while parsing /proc/%d/maps\n",
                 pid);
-        close(coredump_fd);
-        return -1;
+        goto coredump_cleanup;
     }
 
     phdr_count = write_elf_program_headers(coredump_fd, pid_maps, pid);
@@ -36,9 +37,7 @@ int create_coredump(const pid_t pid, const char* filename) {
         fprintf(stderr,
                 "Error occured while dumping process %d\n",
                 pid);
-        free_maps_list(pid_maps);
-        close(coredump_fd);
-        return -1;
+        goto coredump_cleanup;
     }
 
     ret = write_elf_header(coredump_fd, phdr_count);
@@ -46,13 +45,17 @@ int create_coredump(const pid_t pid, const char* filename) {
         fprintf(stderr,
                 "Error occured while writing to file %s\n",
                 filename);
-        free_maps_list(pid_maps);
-        close(coredump_fd);
-        return -1;
+        goto coredump_cleanup;
     }
 
     free_maps_list(pid_maps);
     close(coredump_fd);
 
     return 0;
+
+coredump_cleanup:
+    free_maps_list(pid_maps);
+    close(coredump_fd);
+
+    return -1;
 }

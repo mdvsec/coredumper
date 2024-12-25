@@ -122,6 +122,10 @@ static ssize_t dump_process_info(const int fd, size_t* table_offset, size_t* dat
     int written_hdr;
 
     ptnote_hdr_count = 0;
+    threads_state = NULL;
+    auxv_buf = NULL;
+    nt_file_buf = NULL;
+    auxv_sz = nt_file_sz = 0;
 
     if (collect_nt_prpsinfo(pid, &prpsinfo) < 0) {
         return -1;
@@ -133,47 +137,33 @@ static ssize_t dump_process_info(const int fd, size_t* table_offset, size_t* dat
     }
     ptnote_hdr_count += written_hdr;
 
-    threads_state = NULL;
     if (collect_threads_state(pid, &threads_state) < 0) {
         return -1;
     }
 
     written_hdr = write_threads_state(fd, table_offset, data_offset, threads_state);
     if (written_hdr < 0) {
-        free_state_list(threads_state);
-        return -1;
+        goto proc_cleanup;
     }
     ptnote_hdr_count += written_hdr;
 
-    auxv_buf = NULL;
-    auxv_sz = 0;
     if (collect_nt_auxv(pid, &auxv_buf, &auxv_sz) < 0) {
-        free_state_list(threads_state);
-        return -1;
+        goto proc_cleanup;
     }
 
     written_hdr = write_generic_note(fd, table_offset, data_offset, auxv_buf, auxv_sz, NT_AUXV, "CORE");
     if (written_hdr < 0) {
-        free(auxv_buf);
-        free_state_list(threads_state);
-        return -1;
+        goto proc_cleanup;
     }
     ptnote_hdr_count += written_hdr;
 
-    nt_file_buf = NULL;
-    nt_file_sz = 0;
     if (collect_nt_file(head, &nt_file_buf, &nt_file_sz) < 0) {
-        free(auxv_buf);
-        free_state_list(threads_state);
-        return -1;
+        goto proc_cleanup;
     }
 
     written_hdr = write_generic_note(fd, table_offset, data_offset, nt_file_buf, nt_file_sz, NT_FILE, "CORE");
     if (written_hdr < 0) {
-        free(nt_file_buf);
-        free(auxv_buf);
-        free_state_list(threads_state);
-        return -1;
+        goto proc_cleanup;
     }
     ptnote_hdr_count += written_hdr;
 
@@ -182,6 +172,13 @@ static ssize_t dump_process_info(const int fd, size_t* table_offset, size_t* dat
     free_state_list(threads_state);
 
     return ptnote_hdr_count;
+
+proc_cleanup:
+    free(nt_file_buf);
+    free(auxv_buf);
+    free_state_list(threads_state);
+
+    return -1;
 }
 
 static ssize_t write_generic_note(const int fd, size_t* table_offset, size_t* data_offset, const void* buf, const size_t buf_sz, const int type, const char* name) {
@@ -331,7 +328,7 @@ static void create_program_header_ptload(Elf64_Phdr* phdr, const maps_entry_t* e
     phdr->p_filesz = entry->end_addr - entry->start_addr;
     phdr->p_memsz = phdr->p_filesz;
 
-    if (strchr(entry->perms, 'r') && strcmp(entry->pathname, "[vvar]")) {
+    if (strchr(entry->perms, 'r') && (entry->len ? strcmp(entry->pathname, "[vvar]") : 1)) {
         phdr->p_flags |= PF_R;
     }
     if (strchr(entry->perms, 'w')) {

@@ -32,7 +32,7 @@ static int collect_arm_pac_mask(const pid_t, elf_arm_pac_mask_t*);
 static int collect_siginfo(const pid_t, siginfo_t*);
 
 static int is_readable(const maps_entry_t* entry) {
-    return entry->perms[0] == 'r' && strcmp(entry->pathname, "[vvar]");
+    return entry->perms[0] == 'r' && (entry->len ? strcmp(entry->pathname, "[vvar]") : 1);
 }
 
 maps_entry_t* parse_procfs_maps(const pid_t pid) {
@@ -539,14 +539,6 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
         info->pr_psargs[sizeof(info->pr_psargs) - 1] = 0;
     }
 
-    /*
-    printf("DEBUG\nName:%s\nState:%c\nPid:%d\nArgs:%s\n",
-           info->pr_fname,
-           info->pr_sname,
-           info->pr_pid,
-           info->pr_psargs);
-    */
-
     fclose(cmdline_file);
     fclose(status_file);
 
@@ -578,10 +570,7 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     while ((bytes_read = read(auxv_fd, buf, sizeof(buf))) > 0) {
         Elf64_auxv_t* tmp_buf = realloc(*data_buf, total_sz + bytes_read);
         if (!tmp_buf) {
-            free(*data_buf);
-            *data_buf = NULL;
-            close(auxv_fd);
-            return -1;
+            goto auxv_cleanup;
         }
 
         *data_buf = tmp_buf;
@@ -591,21 +580,25 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     }
 
     if (bytes_read < 0 || total_sz == 0) {
-        free(*data_buf);
-        *data_buf = NULL;
-        close(auxv_fd);
-        return -1;
+        goto auxv_cleanup;
     }
 
     if (data_sz) {
         *data_sz = total_sz;
     } else {
-        return -1;
+        goto auxv_cleanup;
     }
 
     close(auxv_fd);
 
     return 0;
+
+auxv_cleanup:
+    free(*data_buf);
+    *data_buf = NULL;
+    close(auxv_fd);
+
+    return -1;
 }
 
 int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) {
