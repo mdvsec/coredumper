@@ -85,16 +85,14 @@ ssize_t write_elf_program_headers(const int fd, const maps_entry_t* head, const 
 }
 
 static ssize_t dump_process_memory(const int fd, size_t* table_offset, size_t* data_offset, const maps_entry_t* head, const pid_t pid) {
-    const maps_entry_t* entry;
     ssize_t ptload_hdr_count;
 
     ptload_hdr_count = 0;
-    entry = head;
 
-    while (entry) {
+    while (head) {
         Elf64_Phdr phdr;
 
-        create_program_header_ptload(&phdr, entry, data_offset);
+        create_program_header_ptload(&phdr, head, data_offset);
 
         if (write_phdr_entry(fd, table_offset, &phdr) < 0) {
             return -1;
@@ -105,7 +103,7 @@ static ssize_t dump_process_memory(const int fd, size_t* table_offset, size_t* d
         }
 
         ptload_hdr_count++;
-        entry = entry->next;
+        head = head->next;
     }
 
     return ptload_hdr_count;
@@ -249,14 +247,12 @@ static ssize_t write_note_data(const int fd, const size_t* data_offset, const vo
 }
 
 static ssize_t write_threads_state(const int fd, size_t* table_offset, size_t* data_offset, const thread_state_t* head) {
-    const thread_state_t* entry;
     size_t note_sz;
     ssize_t written_hdr;
 
     written_hdr = 0;
-    entry = head;
 
-    while (entry) {
+    while (head) {
         Elf64_Phdr phdr;
         size_t tmp_data_offset;
         ssize_t write_sz;
@@ -264,28 +260,28 @@ static ssize_t write_threads_state(const int fd, size_t* table_offset, size_t* d
         note_sz = 0;
 
         tmp_data_offset = *data_offset + note_sz;
-        write_sz = write_note_data(fd, &tmp_data_offset, &entry->prstatus, sizeof(entry->prstatus), NT_PRSTATUS, "CORE");
+        write_sz = write_note_data(fd, &tmp_data_offset, &head->prstatus, sizeof(head->prstatus), NT_PRSTATUS, "CORE");
         if (write_sz < 0) {
             return -1;
         }
         note_sz += write_sz;
 
         tmp_data_offset = *data_offset + note_sz;
-        write_sz = write_note_data(fd, &tmp_data_offset, &entry->fpregs, sizeof(entry->fpregs), NT_FPREGSET, "CORE");
+        write_sz = write_note_data(fd, &tmp_data_offset, &head->fpregs, sizeof(head->fpregs), NT_FPREGSET, "CORE");
         if (write_sz < 0) {
             return -1;
         }
         note_sz += write_sz;
 
         tmp_data_offset = *data_offset + note_sz;
-        write_sz = write_note_data(fd, &tmp_data_offset, &entry->pac_mask, sizeof(entry->pac_mask), NT_ARM_PAC_MASK, "LINUX");
+        write_sz = write_note_data(fd, &tmp_data_offset, &head->pac_mask, sizeof(head->pac_mask), NT_ARM_PAC_MASK, "LINUX");
         if (write_sz < 0) {
             return -1;
         }
         note_sz += write_sz;
 
         tmp_data_offset = *data_offset + note_sz;
-        write_sz = write_note_data(fd, &tmp_data_offset, &entry->siginfo, sizeof(entry->siginfo), NT_SIGINFO, "CORE");
+        write_sz = write_note_data(fd, &tmp_data_offset, &head->siginfo, sizeof(head->siginfo), NT_SIGINFO, "CORE");
         if (write_sz < 0) {
             return -1;
         }
@@ -299,7 +295,7 @@ static ssize_t write_threads_state(const int fd, size_t* table_offset, size_t* d
 
         written_hdr++;
 
-        entry = entry->next;
+        head = head->next;
     }
 
     return written_hdr;

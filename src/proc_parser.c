@@ -141,23 +141,22 @@ void free_maps_list(maps_entry_t* head) {
 }
 
 void print_maps_list(const maps_entry_t* head) {
-    const maps_entry_t* entry = head;
-    while (entry) {
-        printf("Start addr: %lx\n", entry->start_addr);
-        printf("End addr: %lx\n", entry->end_addr);
-        printf("Permissions: %s\n", entry->perms);
-        printf("Offset: %lx\n", entry->offset);
-        printf("Dev major: %x\n", entry->dev_major);
-        printf("Dev minor: %x\n", entry->dev_minor);
-        printf("Inode: %lu\n", entry->inode);
+    while (head) {
+        printf("Start addr: %lx\n", head->start_addr);
+        printf("End addr: %lx\n", head->end_addr);
+        printf("Permissions: %s\n", head->perms);
+        printf("Offset: %lx\n", head->offset);
+        printf("Dev major: %x\n", head->dev_major);
+        printf("Dev minor: %x\n", head->dev_minor);
+        printf("Inode: %lu\n", head->inode);
 
-        if (entry->len) {
-            printf("Pathname: %s\n", entry->pathname);
+        if (head->len) {
+            printf("Pathname: %s\n", head->pathname);
         } else {
             printf("Pathname: [anonymous]\n");
         }
 
-        entry = entry->next;
+        head = head->next;
     }
 }
 
@@ -308,10 +307,9 @@ void free_state_list(thread_state_t* head) {
 }
 
 void print_state_list(const thread_state_t* head) {
-    const thread_state_t* entry = head;
-    while (entry) {
+    while (head) {
         /* print debug messages */
-        entry = entry->next;
+        head = head->next;
     }
 }
 
@@ -602,7 +600,7 @@ auxv_cleanup:
 }
 
 int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) {
-    maps_entry_t* entry;
+    const maps_entry_t* entry;
     size_t desc_sz;
     size_t region_count;
     size_t region_offset;
@@ -612,7 +610,7 @@ int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) 
     desc_sz = sizeof(uint64_t) * 2; /* count, pagesize */
     region_count = 0;
 
-    entry = (maps_entry_t*) head;
+    entry = head;
     while (entry) {
         if (entry->inode) {
             size_t entry_name_len;
@@ -649,7 +647,7 @@ int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) 
     region_offset = sizeof(uint64_t) * 2;
     name_offset = region_offset + region_count * sizeof(uint64_t) * 3;
 
-    entry = (maps_entry_t*) head;
+    entry = head;
     while (entry) {
         if (entry->inode) {
             const char* entry_name;
