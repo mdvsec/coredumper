@@ -35,18 +35,7 @@ typedef struct _thread_state_t {
     struct _thread_state_t* next;
 } thread_state_t;
 
-/*
- *   Parses the /proc/PID/maps file and returns a pointer to a linked list
- *   of maps_entry_t structures. Each node in the linked list represents 
- *   an entry from the maps file, with fields populated accordingly.
- *
- *   The caller is responsible for freeing allocated memory for the linked list.
- *
- *   Returns:
- *       A pointer to the head of the linked list containing parsed entries, 
- *       or NULL if an error occurs during parsing.
- */
-maps_entry_t* parse_procfs_maps(const pid_t);
+int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps);
 
 int dump_memory_region(const int, size_t*, const Elf64_Phdr*, const pid_t);
 int collect_nt_prpsinfo(const pid_t, prpsinfo_t*);

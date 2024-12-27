@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
+#include "exit_codes.h"
 
 #define stringify(x) #x
 #define tostring(x) stringify(x)
@@ -35,19 +36,17 @@ static int is_readable(const maps_entry_t* entry) {
     return entry->perms[0] == 'r' && (entry->len ? strcmp(entry->pathname, "[vvar]") : 1);
 }
 
-maps_entry_t* parse_procfs_maps(const pid_t pid) {
-    maps_entry_t* pid_maps = NULL;
-    maps_entry_t* tail = pid_maps;
-
+int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
+    maps_entry_t* tail = *pid_maps;
     FILE* maps_file;
     char line[LINE_SIZE];
-
     char maps_path[32];
+
     snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid);
 
     maps_file = fopen(maps_path, "r");
     if (!maps_file) {
-        return NULL; 
+        return CD_IO_ERR;
     }
 
     while (fgets(line, sizeof(line), maps_file)) {
@@ -105,11 +104,11 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
             continue;
         }
 
-        if (pid_maps) {
+        if (*pid_maps) {
             tail->next = maps_entry;
             tail = maps_entry;
         } else {
-            pid_maps = tail = maps_entry;
+            *pid_maps = tail = maps_entry;
         }
 
         tail->next = NULL;
@@ -124,12 +123,13 @@ maps_entry_t* parse_procfs_maps(const pid_t pid) {
 
     fclose(maps_file);
 
-    return pid_maps;
+    return 0;
 
 maps_cleanup:
-    free_maps_list(pid_maps);
+    free_maps_list(*pid_maps);
+    *pid_maps = NULL;
     fclose(maps_file);
-    return NULL;
+    return CD_NO_MEM;
 }
 
 void free_maps_list(maps_entry_t* head) {
@@ -168,14 +168,14 @@ int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr
     char buf[CHUNK_SIZE];
 
     if (lseek(fd, *data_offset, SEEK_SET) < 0) {
-        return -1;
+        return CD_IO_ERR;
     }
 
     snprintf(mem_path, sizeof(mem_path), "/proc/%d/mem", pid);
 
     mem_fd = open(mem_path, O_RDONLY);
     if (mem_fd < 0) {
-        return -1;
+        return CD_IO_ERR;
     }
 
     len = phdr->p_memsz;
@@ -221,7 +221,7 @@ int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr
 
 dump_cleanup:
     close(mem_fd);
-    return -1;
+    return CD_IO_ERR;
 }
 
 int collect_threads_state(const pid_t pid, thread_state_t** head) {
@@ -229,16 +229,17 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
     char task_path[64];
     DIR* task_dir;
     struct dirent* entry;
+    int ret;
 
     if (*head) {
-        return -1;
+        return CD_INVALID_ARGS;
     }
 
     snprintf(task_path, sizeof(task_path), "/proc/%d/task", pid);
 
     task_dir = opendir(task_path);
     if (!task_dir) {
-        return -1;
+        return CD_IO_ERR;
     }
 
     while ((entry = readdir(task_dir))) {
@@ -253,25 +254,26 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
 
         state = malloc(sizeof(thread_state_t));
         if (!state) {
+            ret = CD_NO_MEM;
             goto state_cleanup;
         }
 
-        if (collect_prstatus(pid, tid, &state->prstatus) < 0) {
+        if ((ret = collect_prstatus(pid, tid, &state->prstatus))) {
             free(state);
             goto state_cleanup;
         }
 
-        if (collect_fpregs(tid, &state->fpregs) < 0) {
+        if ((ret = collect_fpregs(tid, &state->fpregs))) {
             free(state);
             goto state_cleanup;
         }
 
-        if (collect_arm_pac_mask(tid, &state->pac_mask) < 0) {
+        if ((ret = collect_arm_pac_mask(tid, &state->pac_mask))) {
             free(state);
             goto state_cleanup;
         }
 
-        if (collect_siginfo(tid, &state->siginfo) < 0) {
+        if ((ret = collect_siginfo(tid, &state->siginfo))) {
             free(state);
             goto state_cleanup;
         }
@@ -288,14 +290,14 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
 
     closedir(task_dir);
 
-    return 0;
+    return ret;
 
 state_cleanup:
     free_state_list(*head);
     *head = NULL;
     closedir(task_dir);
 
-    return -1;
+    return ret;
 }
 
 void free_state_list(thread_state_t* head) {
@@ -322,7 +324,7 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
 
     status_file = fopen(status_path, "r");
     if (!status_file) {
-        return -1;
+        return CD_IO_ERR;
     }
 
     while (fgets(line, sizeof(line), status_file)) {
@@ -354,39 +356,39 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
 
 static int collect_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstatus) {
     struct iovec iov;
+    int ret;
 
     memset(prstatus, 0, sizeof(*prstatus));
 
     if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     if (waitpid(tid, NULL, 0) < 0) {
-        perror("waitpid");
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     /* Signal may be absent */
     ptrace(PTRACE_GETSIGINFO, tid, NULL, &prstatus->pr_info);
     prstatus->pr_cursig = prstatus->pr_info.si_signo;
 
-    if (populate_prstatus(pid, tid, prstatus) < 0) {
-        return -1;
+    if ((ret = populate_prstatus(pid, tid, prstatus))) {
+        return ret;
     }
 
     iov.iov_base = &prstatus->pr_reg;
     iov.iov_len = sizeof(prstatus->pr_reg);
     if (ptrace(PTRACE_GETREGSET, tid, (void*) NT_PRSTATUS, &iov) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     prstatus->pr_fpvalid = 1;
 
     if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
-    return 0;
+    return ret;
 }
 
 static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
@@ -395,12 +397,11 @@ static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
     memset(fpregs, 0, sizeof(*fpregs));
 
     if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     if (waitpid(tid, NULL, 0) < 0) {
-        perror("waitpid");
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     iov.iov_base = fpregs;
@@ -408,11 +409,11 @@ static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
 
     if (ptrace(PTRACE_GETREGSET, tid, (void*) NT_FPREGSET, &iov) < 0) {
         perror("ptrace_getregset");
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     return 0;
@@ -422,18 +423,18 @@ static int collect_siginfo(const pid_t tid, siginfo_t* siginfo) {
     memset(siginfo, 0, sizeof(*siginfo));
 
     if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     if (waitpid(tid, NULL, 0) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     /* Signals may be absent */
     ptrace(PTRACE_GETSIGINFO, tid, NULL, siginfo);
 
     if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     return 0;
@@ -445,22 +446,22 @@ static int collect_arm_pac_mask(const pid_t tid, elf_arm_pac_mask_t* mask) {
     memset(mask, 0, sizeof(*mask));
 
     if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     if (waitpid(tid, NULL, 0) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     iov.iov_base = mask;
     iov.iov_len = sizeof(*mask);
 
     if (ptrace(PTRACE_GETREGSET, tid, (void*) NT_ARM_PAC_MASK, &iov) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return -1;
+        return CD_PTRACE_ERR;
     }
 
     return 0;
@@ -479,7 +480,7 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
 
     status_file = fopen(status_path, "r");
     if (!status_file) {
-        return -1;
+        return CD_IO_ERR;
     }
 
     memset(info, 0, sizeof(*info));
@@ -521,7 +522,7 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
     cmdline_file = fopen(cmdline_path, "r");
     if (!cmdline_file) {
         fclose(status_file);
-        return -1;
+        return CD_IO_ERR;
     }
 
     memset(line, 0, sizeof(line));
@@ -549,17 +550,18 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     char buf[512];
     size_t bytes_read;
     size_t total_sz;
+    int ret = 0;
 
     snprintf(auxv_path, sizeof(auxv_path), "/proc/%d/auxv", pid);
 
     auxv_fd = open(auxv_path, O_RDONLY);
     if (auxv_fd < 0) {
-        return -1;
+        return CD_IO_ERR;
     }
 
     if (*data_buf) {
         close(auxv_fd);
-        return -1;
+        return CD_INVALID_ARGS;
     }
 
     total_sz = 0;
@@ -568,6 +570,7 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     while ((bytes_read = read(auxv_fd, buf, sizeof(buf))) > 0) {
         Elf64_auxv_t* tmp_buf = realloc(*data_buf, total_sz + bytes_read);
         if (!tmp_buf) {
+            ret = CD_NO_MEM;
             goto auxv_cleanup;
         }
 
@@ -578,25 +581,27 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     }
 
     if (bytes_read < 0 || total_sz == 0) {
+        ret = CD_IO_ERR;
         goto auxv_cleanup;
     }
 
     if (data_sz) {
         *data_sz = total_sz;
     } else {
+        ret = CD_INVALID_ARGS;
         goto auxv_cleanup;
     }
 
     close(auxv_fd);
 
-    return 0;
+    return ret;
 
 auxv_cleanup:
     free(*data_buf);
     *data_buf = NULL;
     close(auxv_fd);
 
-    return -1;
+    return ret;
 }
 
 int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) {
@@ -625,18 +630,18 @@ int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) 
     }
 
     if (*data_buf) {
-        return -1;
+        return CD_INVALID_ARGS;
     }
 
     *data_buf = malloc(desc_sz);
     if (!*data_buf) {
-        return -1;
+        return CD_NO_MEM;
     }
 
     if (data_sz) {
         *data_sz = desc_sz;
     } else {
-        return -1;
+        return CD_INVALID_ARGS;
     }
 
     memset(*data_buf, 0, desc_sz);
