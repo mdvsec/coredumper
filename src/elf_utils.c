@@ -23,7 +23,7 @@ static int write_note_data(const int, const size_t*, const void*, const size_t, 
 static int write_threads_state(const int, size_t*, size_t*, const thread_state_t*, int*);
 static int write_phdr_entry(const int, size_t*, const Elf64_Phdr*);
 
-static void create_program_header_ptload(Elf64_Phdr*, const maps_entry_t*, const size_t* data_offset);
+static void create_program_header_ptload(Elf64_Phdr*, const maps_entry_t*, const size_t*);
 static void create_program_header_ptnote(Elf64_Phdr*, const size_t, const size_t*);
 
 static long get_pagesize(void);
