@@ -32,8 +32,8 @@ static int collect_fpregs(const pid_t, elf_fpregset_t*);
 static int collect_arm_pac_mask(const pid_t, elf_arm_pac_mask_t*);
 static int collect_siginfo(const pid_t, siginfo_t*);
 
-static int is_readable(const maps_entry_t* entry) {
-    return entry->perms[0] == 'r' && (entry->len ? strcmp(entry->pathname, "[vvar]") : 1);
+static int is_readable(const maps_entry_t* entry, const char* pathname) {
+    return entry->perms[0] == 'r' && (entry->len ? strcmp(pathname, "[vvar]") : 1);
 }
 
 int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
@@ -57,8 +57,6 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
 
         maps_entry = malloc(sizeof(maps_entry_t));
         if (!maps_entry) {
-            fprintf(stderr,
-                    "Not enough memory, aborting\n");
             goto maps_cleanup;
         }
 
@@ -74,9 +72,6 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
                          tmp_pathname);
 
         if (matched < 7) {
-            fprintf(stderr,
-                    "Error occured while parsing line: %s", 
-                    line);
             free(maps_entry);
             goto maps_cleanup;
         }
@@ -84,24 +79,22 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
         path_len = strlen(tmp_pathname);
         maps_entry->len = path_len ? path_len + 1 : 0;
 
+        if (!is_readable(maps_entry, tmp_pathname)) {
+            free(maps_entry);
+            continue;
+        }
+
         if (maps_entry->len) {
             maps_entry_t* maps_entry_tmp = realloc(maps_entry, 
                                                    offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
 
             if (!maps_entry_tmp) {
-                fprintf(stderr,
-                        "Not enough memory, aborting\n");
                 free(maps_entry);
                 goto maps_cleanup;
             }
             
             maps_entry = maps_entry_tmp;
             strcpy(maps_entry->pathname, tmp_pathname);
-        }
-
-        if (!is_readable(maps_entry)) {
-            free(maps_entry);
-            continue;
         }
 
         if (*pid_maps) {
@@ -115,9 +108,6 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
     }
 
     if (ferror(maps_file)) {
-        fprintf(stderr,
-                "Error occured while reading file %s\n",
-                maps_path);
         goto maps_cleanup;
     }
 
@@ -349,6 +339,11 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
         }
     }
 
+    if (ferror(status_file)) {
+        fclose(status_file);
+        return CD_IO_ERR;
+    }
+
     fclose(status_file);
 
     return 0;
@@ -468,8 +463,8 @@ static int collect_arm_pac_mask(const pid_t tid, elf_arm_pac_mask_t* mask) {
 }
 
 int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
-    FILE* status_file;
-    FILE* cmdline_file;
+    FILE* status_file = NULL;
+    FILE* cmdline_file = NULL;
     char status_path[32];
     char cmdline_path[32];
     char line[LINE_SIZE];
@@ -519,10 +514,13 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
         }
     }
 
+    if (ferror(status_file)) {
+        goto prpsinfo_cleanup;
+    }
+
     cmdline_file = fopen(cmdline_path, "r");
     if (!cmdline_file) {
-        fclose(status_file);
-        return CD_IO_ERR;
+        goto prpsinfo_cleanup;
     }
 
     memset(line, 0, sizeof(line));
@@ -538,10 +536,19 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
         info->pr_psargs[sizeof(info->pr_psargs) - 1] = 0;
     }
 
+    if (ferror(cmdline_file)) {
+        goto prpsinfo_cleanup;
+    }
+
     fclose(cmdline_file);
     fclose(status_file);
 
     return 0;
+
+prpsinfo_cleanup:
+    fclose(cmdline_file);
+    fclose(status_file);
+    return CD_IO_ERR;
 }
 
 int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
