@@ -41,6 +41,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
     FILE* maps_file;
     char line[LINE_SIZE];
     char maps_path[32];
+    int ret = 0;
 
     snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid);
 
@@ -57,6 +58,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
 
         maps_entry = malloc(sizeof(maps_entry_t));
         if (!maps_entry) {
+            ret = CD_NO_MEM;
             goto maps_cleanup;
         }
 
@@ -72,6 +74,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
                          tmp_pathname);
 
         if (matched < 7) {
+            ret = CD_IO_ERR;
             free(maps_entry);
             goto maps_cleanup;
         }
@@ -89,6 +92,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
                                                    offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
 
             if (!maps_entry_tmp) {
+                ret = CD_NO_MEM;
                 free(maps_entry);
                 goto maps_cleanup;
             }
@@ -108,18 +112,19 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
     }
 
     if (ferror(maps_file)) {
+        ret = CD_IO_ERR;
         goto maps_cleanup;
     }
 
     fclose(maps_file);
 
-    return 0;
+    return ret;
 
 maps_cleanup:
     free_maps_list(*pid_maps);
     *pid_maps = NULL;
     fclose(maps_file);
-    return CD_NO_MEM;
+    return ret;
 }
 
 void free_maps_list(maps_entry_t* head) {
@@ -242,6 +247,16 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
 
         tid = atoi(entry->d_name);
 
+        if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
+            ret = CD_PTRACE_ERR;
+            goto state_cleanup;
+        }
+
+        if (waitpid(tid, NULL, 0) < 0) {
+            ret = CD_PTRACE_ERR;
+            goto state_cleanup;
+        }
+
         state = malloc(sizeof(thread_state_t));
         if (!state) {
             ret = CD_NO_MEM;
@@ -265,6 +280,12 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
 
         if ((ret = collect_siginfo(tid, &state->siginfo))) {
             free(state);
+            goto state_cleanup;
+        }
+
+        if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
+            free(state);
+            ret = CD_PTRACE_ERR;
             goto state_cleanup;
         }
 
@@ -355,14 +376,6 @@ static int collect_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstat
 
     memset(prstatus, 0, sizeof(*prstatus));
 
-    if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (waitpid(tid, NULL, 0) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     /* Signal may be absent */
     ptrace(PTRACE_GETSIGINFO, tid, NULL, &prstatus->pr_info);
     prstatus->pr_cursig = prstatus->pr_info.si_signo;
@@ -379,10 +392,6 @@ static int collect_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstat
 
     prstatus->pr_fpvalid = 1;
 
-    if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     return ret;
 }
 
@@ -390,14 +399,6 @@ static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
     struct iovec iov;
 
     memset(fpregs, 0, sizeof(*fpregs));
-
-    if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (waitpid(tid, NULL, 0) < 0) {
-        return CD_PTRACE_ERR;
-    }
 
     iov.iov_base = fpregs;
     iov.iov_len = sizeof(*fpregs);
@@ -407,30 +408,14 @@ static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
         return CD_PTRACE_ERR;
     }
 
-    if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     return 0;
 }
 
 static int collect_siginfo(const pid_t tid, siginfo_t* siginfo) {
     memset(siginfo, 0, sizeof(*siginfo));
 
-    if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (waitpid(tid, NULL, 0) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     /* Signals may be absent */
     ptrace(PTRACE_GETSIGINFO, tid, NULL, siginfo);
-
-    if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
 
     return 0;
 }
@@ -440,22 +425,10 @@ static int collect_arm_pac_mask(const pid_t tid, elf_arm_pac_mask_t* mask) {
 
     memset(mask, 0, sizeof(*mask));
 
-    if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (waitpid(tid, NULL, 0) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     iov.iov_base = mask;
     iov.iov_len = sizeof(*mask);
 
     if (ptrace(PTRACE_GETREGSET, tid, (void*) NT_ARM_PAC_MASK, &iov) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
         return CD_PTRACE_ERR;
     }
 

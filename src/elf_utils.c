@@ -335,7 +335,7 @@ static void create_program_header_ptload(Elf64_Phdr* phdr, const maps_entry_t* e
     phdr->p_filesz = entry->end_addr - entry->start_addr;
     phdr->p_memsz = phdr->p_filesz;
 
-    if (strchr(entry->perms, 'r') && (entry->len ? strcmp(entry->pathname, "[vvar]") : 1)) {
+    if (strchr(entry->perms, 'r')) {
         phdr->p_flags |= PF_R;
     }
     if (strchr(entry->perms, 'w')) {
