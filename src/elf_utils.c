@@ -38,12 +38,7 @@ static size_t get_pagesize(void) {
 }
 
 int write_elf_header(const int fd, const ssize_t phdr_count) {
-    if (lseek(fd, 0, SEEK_SET) < 0) {
-        return CD_IO_ERR;
-    }
-
-    Elf64_Ehdr elf_hdr;
-    memset(&elf_hdr, 0, sizeof(elf_hdr));
+    Elf64_Ehdr elf_hdr = {0};
 
     elf_hdr.e_ident[EI_MAG0] = ELFMAG0;
     elf_hdr.e_ident[EI_MAG1] = ELFMAG1;
@@ -64,7 +59,7 @@ int write_elf_header(const int fd, const ssize_t phdr_count) {
     elf_hdr.e_phentsize = sizeof(Elf64_Phdr);
     elf_hdr.e_phnum = phdr_count;
 
-    if (write(fd, &elf_hdr, sizeof(elf_hdr)) != sizeof(elf_hdr)) {
+    if (pwrite(fd, &elf_hdr, sizeof(elf_hdr), 0) != sizeof(elf_hdr)) {
         return CD_IO_ERR;
     }
 
@@ -219,7 +214,7 @@ static int write_generic_note(const int fd, size_t* table_offset, size_t* data_o
 }
 
 static int write_note_data(const int fd, const size_t* data_offset, const void* data, const size_t data_len, const int type, const char* name, size_t* write_sz) {
-    Elf64_Nhdr nhdr;
+    Elf64_Nhdr nhdr = {0};
     size_t name_len;
     size_t name_len_padding;
     size_t data_len_padding;
@@ -234,7 +229,6 @@ static int write_note_data(const int fd, const size_t* data_offset, const void* 
 
     note_sz = sizeof(nhdr) + name_len + name_len_padding + data_len + data_len_padding;
 
-    memset(&nhdr, 0, sizeof(nhdr));
     nhdr.n_namesz = name_len;
     nhdr.n_descsz = data_len;
     nhdr.n_type = type;
@@ -255,11 +249,7 @@ static int write_note_data(const int fd, const size_t* data_offset, const void* 
     iov[4].iov_base = p_bytes;
     iov[4].iov_len = data_len_padding;
 
-    if (lseek(fd, *data_offset, SEEK_SET) < 0) {
-        return CD_IO_ERR;
-    }
-
-    if (writev(fd, iov, 5) != note_sz) {
+    if (pwritev(fd, iov, 5, *data_offset) != note_sz) {
         return CD_IO_ERR;
     }
 
@@ -324,11 +314,7 @@ static int write_threads_state(const int fd, size_t* table_offset, size_t* data_
 }
 
 static int write_phdr_entry(const int fd, size_t* table_offset, const Elf64_Phdr* phdr) {
-    if (lseek(fd, *table_offset, SEEK_SET) < 0) {
-        return CD_IO_ERR;
-    }
-
-    if (write(fd, phdr, sizeof(*phdr)) != sizeof(*phdr)) {
+    if (pwrite(fd, phdr, sizeof(*phdr), *table_offset) != sizeof(*phdr)) {
         return CD_IO_ERR;
     }
 

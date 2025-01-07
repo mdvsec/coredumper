@@ -160,7 +160,7 @@ int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr
     size_t len;
     size_t offset;
     char mem_path[32];
-    char buf[CHUNK_SIZE];
+    char buf[CHUNK_SIZE] = {0};
 
     if (lseek(fd, *data_offset, SEEK_SET) < 0) {
         return CD_IO_ERR;
@@ -176,7 +176,6 @@ int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr
     len = phdr->p_memsz;
     offset = 0;
 
-    memset(buf, 0, sizeof(buf));
     while (offset < len) {
         ssize_t read_sz = (len - offset) > CHUNK_SIZE ? CHUNK_SIZE : len - offset;
         ssize_t write_sz = 0;
@@ -440,7 +439,7 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
     FILE* cmdline_file = NULL;
     char status_path[32];
     char cmdline_path[32];
-    char line[LINE_SIZE];
+    char line[LINE_SIZE] = {0};
     size_t len;
 
     snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
