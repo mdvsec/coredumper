@@ -14,8 +14,8 @@ typedef struct _maps_entry_t {
     uintptr_t end_addr;
     char perms[5];
     uint64_t offset;
-    int dev_major;
-    int dev_minor;
+    unsigned int dev_major;
+    unsigned int dev_minor;
     uint64_t inode;
     size_t len;
     struct _maps_entry_t* next;

@@ -477,12 +477,12 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
         }
 
         if (strncmp(line, "Uid:", 4) == 0) {
-            sscanf(line, "Uid: %d", &info->pr_uid);
+            sscanf(line, "Uid: %u", &info->pr_uid);
             continue;
         }
 
         if (strncmp(line, "Gid:", 4) == 0) {
-            sscanf(line, "Gid: %d", &info->pr_gid);
+            sscanf(line, "Gid: %u", &info->pr_gid);
             continue;
         }
     }
@@ -528,7 +528,7 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     int auxv_fd;
     char auxv_path[32];
     char buf[512];
-    size_t bytes_read;
+    ssize_t bytes_read;
     size_t total_sz;
     int ret = 0;
 

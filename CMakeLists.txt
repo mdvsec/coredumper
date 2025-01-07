@@ -1,4 +1,27 @@
 cmake_minimum_required(VERSION 3.10)
+
+if (NOT UNIX)
+    message(FATAL_ERROR "This project only supports Linux aarch64 platform.\n")
+endif()
+
+execute_process(
+    COMMAND uname -s
+    OUTPUT_VARIABLE OS_TYPE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+execute_process(
+    COMMAND uname -m
+    OUTPUT_VARIABLE ARCH_TYPE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+if (NOT OS_TYPE MATCHES "Linux" OR NOT ARCH_TYPE MATCHES "aarch64")
+    message(FATAL_ERROR "This project only supports Linux aarch64 platform.\n"
+            "Current OS: ${OS_TYPE}\n"
+            "Current architecture: ${ARCH_TYPE}\n")
+endif()
+
 project(memdumper C CXX)
 
 # GoogleTest requires at least C++14
@@ -11,7 +34,7 @@ file(GLOB SOURCES "${PROJECT_SOURCE_DIR}/src/*.c")
 
 add_executable(memdumper ${SOURCES})
 
-target_compile_options(memdumper PRIVATE -Wall -g)
+target_compile_options(memdumper PRIVATE -Wall -Wextra -pedantic -g)
 
 # Use GoogleTest framework for testing 
 enable_testing()

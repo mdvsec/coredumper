@@ -67,13 +67,15 @@ int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_
     int ptnote_hdr_count;
     size_t table_offset;
     size_t data_offset;
+    off_t seek_result;
     int ret;
 
     /* Reserve space for ELF header */
-    table_offset = lseek(fd, sizeof(Elf64_Ehdr), SEEK_SET);
-    if (table_offset < 0) {
+    seek_result = lseek(fd, sizeof(Elf64_Ehdr), SEEK_SET);
+    if (seek_result < 0) {
         return CD_IO_ERR;
     }
+    table_offset = (size_t) seek_result;
 
     /* TBD: Data offset should be calculated based on number of program headers */
     data_offset = getpagesize();
@@ -212,7 +214,7 @@ static int write_note_data(const int fd, const size_t* data_offset, const void* 
     size_t name_len;
     size_t name_len_padding;
     size_t data_len_padding;
-    size_t note_sz;
+    ssize_t note_sz;
     struct iovec iov[5];
     char p_bytes[PT_NOTE_ALIGNMENT] = {0};
 
