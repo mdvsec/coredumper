@@ -26,7 +26,16 @@ static int write_phdr_entry(const int, size_t*, const Elf64_Phdr*);
 static void create_program_header_ptload(Elf64_Phdr*, const maps_entry_t*, const size_t*);
 static void create_program_header_ptnote(Elf64_Phdr*, const size_t, const size_t*);
 
-static long get_pagesize(void);
+static size_t get_pagesize(void) {
+    static size_t cached_pagesize = 0;
+
+    if (cached_pagesize == 0) {
+        long pagesize = sysconf(_SC_PAGESIZE);
+        cached_pagesize = (pagesize > 0) ? (size_t) pagesize : PAGE_SIZE_DEFAULT;
+    }
+
+    return cached_pagesize;
+}
 
 int write_elf_header(const int fd, const ssize_t phdr_count) {
     if (lseek(fd, 0, SEEK_SET) < 0) {
@@ -362,15 +371,4 @@ static void create_program_header_ptnote(Elf64_Phdr* phdr, const size_t note_sz,
     phdr->p_flags = 0;
     phdr->p_align = PT_NOTE_ALIGNMENT;
     phdr->p_offset = *data_offset;
-}
-
-static long get_pagesize(void) {
-    long pagesize;
-
-    pagesize = sysconf(_SC_PAGESIZE);
-    if (pagesize < 0) {
-        return PAGE_SIZE_DEFAULT;
-    }
-
-    return pagesize;
 }
