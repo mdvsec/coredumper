@@ -4,10 +4,9 @@
 #include <signal.h>
 #include <errno.h>
 #include <string.h>
+#include <limits.h>
 #include "coredump.h"
 #include "exit_codes.h"
-
-#define PATHNAME_MAX 64
 
 static void __attribute__((noreturn)) print_usage_exit(const char* name) {
     fprintf(stderr, 
@@ -69,8 +68,7 @@ static void print_ret_msg(const int code, const pid_t pid, const char* filename)
 }
 
 int main(int argc, char** argv) {
-    char filename[PATHNAME_MAX];
-    int custom_filename = 0;
+    char* filename = NULL;
     int opt;
     int ret;
     pid_t pid = 0;
@@ -85,12 +83,16 @@ int main(int argc, char** argv) {
 
                 break;
             case 'o':
-                if (strlen(optarg) >= PATHNAME_MAX) {
+                if (strlen(optarg) >= PATH_MAX) {
                     print_usage_exit(argv[0]);
                 }
-                strncpy(filename, optarg, PATHNAME_MAX - 1);
-                filename[PATHNAME_MAX - 1] = 0;
-                custom_filename = 1;
+
+                filename = strdup(optarg);
+                if (!filename) {
+                    fprintf(stderr,
+                            "Error: insufficient memory to complete the operation\n");
+                    exit(EXIT_FAILURE);
+                }
 
                 break;
             case '?':
@@ -100,14 +102,24 @@ int main(int argc, char** argv) {
     }
 
     if (!pid) {
+        free(filename);
         print_usage_exit(argv[0]);
     }
 
-    if (!custom_filename) {
-        snprintf(filename, sizeof(filename), "%d_coredump", pid);
+    if (!filename) {
+        char default_filename[PATH_MAX];
+        snprintf(default_filename, sizeof(default_filename), "%d_coredump", pid);
+
+        filename = strdup(default_filename);
+        if (!filename) {
+            fprintf(stderr,
+                    "Error: insufficient memory to complete the operation\n");
+            exit(EXIT_FAILURE);
+        }
     }
 
     if (kill(pid, SIGSTOP) < 0) {
+        free(filename);
         handle_kill_error_exit(pid);
     }
 
@@ -117,10 +129,13 @@ int main(int argc, char** argv) {
     print_ret_msg(ret, pid, filename);
 
     if (kill(pid, SIGCONT) < 0) {
+        free(filename);
         handle_kill_error_exit(pid);
     }
 
     printf("[DEBUG] Process %d has been resumed\n", pid);
+
+    free(filename);
 
     return ret;
 }
