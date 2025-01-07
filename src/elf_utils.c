@@ -26,7 +26,16 @@ static int write_phdr_entry(const int, size_t*, const Elf64_Phdr*);
 static void create_program_header_ptload(Elf64_Phdr*, const maps_entry_t*, const size_t*);
 static void create_program_header_ptnote(Elf64_Phdr*, const size_t, const size_t*);
 
-static long get_pagesize(void);
+static size_t get_pagesize(void) {
+    static size_t cached_pagesize = 0;
+
+    if (cached_pagesize == 0) {
+        long pagesize = sysconf(_SC_PAGESIZE);
+        cached_pagesize = (pagesize > 0) ? (size_t) pagesize : PAGE_SIZE_DEFAULT;
+    }
+
+    return cached_pagesize;
+}
 
 int write_elf_header(const int fd, const ssize_t phdr_count) {
     if (lseek(fd, 0, SEEK_SET) < 0) {
@@ -67,13 +76,15 @@ int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_
     int ptnote_hdr_count;
     size_t table_offset;
     size_t data_offset;
+    off_t seek_result;
     int ret;
 
     /* Reserve space for ELF header */
-    table_offset = lseek(fd, sizeof(Elf64_Ehdr), SEEK_SET);
-    if (table_offset < 0) {
+    seek_result = lseek(fd, sizeof(Elf64_Ehdr), SEEK_SET);
+    if (seek_result < 0) {
         return CD_IO_ERR;
     }
+    table_offset = (size_t) seek_result;
 
     /* TBD: Data offset should be calculated based on number of program headers */
     data_offset = getpagesize();
@@ -212,7 +223,7 @@ static int write_note_data(const int fd, const size_t* data_offset, const void* 
     size_t name_len;
     size_t name_len_padding;
     size_t data_len_padding;
-    size_t note_sz;
+    ssize_t note_sz;
     struct iovec iov[5];
     char p_bytes[PT_NOTE_ALIGNMENT] = {0};
 
@@ -335,7 +346,7 @@ static void create_program_header_ptload(Elf64_Phdr* phdr, const maps_entry_t* e
     phdr->p_filesz = entry->end_addr - entry->start_addr;
     phdr->p_memsz = phdr->p_filesz;
 
-    if (strchr(entry->perms, 'r') && (entry->len ? strcmp(entry->pathname, "[vvar]") : 1)) {
+    if (strchr(entry->perms, 'r')) {
         phdr->p_flags |= PF_R;
     }
     if (strchr(entry->perms, 'w')) {
@@ -360,15 +371,4 @@ static void create_program_header_ptnote(Elf64_Phdr* phdr, const size_t note_sz,
     phdr->p_flags = 0;
     phdr->p_align = PT_NOTE_ALIGNMENT;
     phdr->p_offset = *data_offset;
-}
-
-static long get_pagesize(void) {
-    long pagesize;
-
-    pagesize = sysconf(_SC_PAGESIZE);
-    if (pagesize < 0) {
-        return PAGE_SIZE_DEFAULT;
-    }
-
-    return pagesize;
 }

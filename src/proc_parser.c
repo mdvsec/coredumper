@@ -32,8 +32,8 @@ static int collect_fpregs(const pid_t, elf_fpregset_t*);
 static int collect_arm_pac_mask(const pid_t, elf_arm_pac_mask_t*);
 static int collect_siginfo(const pid_t, siginfo_t*);
 
-static int is_readable(const maps_entry_t* entry) {
-    return entry->perms[0] == 'r' && (entry->len ? strcmp(entry->pathname, "[vvar]") : 1);
+static int is_readable(const maps_entry_t* entry, const char* pathname) {
+    return entry->perms[0] == 'r' && (entry->len ? strcmp(pathname, "[vvar]") : 1);
 }
 
 int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
@@ -41,6 +41,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
     FILE* maps_file;
     char line[LINE_SIZE];
     char maps_path[32];
+    int ret = 0;
 
     snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid);
 
@@ -57,8 +58,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
 
         maps_entry = malloc(sizeof(maps_entry_t));
         if (!maps_entry) {
-            fprintf(stderr,
-                    "Not enough memory, aborting\n");
+            ret = CD_NO_MEM;
             goto maps_cleanup;
         }
 
@@ -74,9 +74,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
                          tmp_pathname);
 
         if (matched < 7) {
-            fprintf(stderr,
-                    "Error occured while parsing line: %s", 
-                    line);
+            ret = CD_IO_ERR;
             free(maps_entry);
             goto maps_cleanup;
         }
@@ -84,24 +82,23 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
         path_len = strlen(tmp_pathname);
         maps_entry->len = path_len ? path_len + 1 : 0;
 
+        if (!is_readable(maps_entry, tmp_pathname)) {
+            free(maps_entry);
+            continue;
+        }
+
         if (maps_entry->len) {
             maps_entry_t* maps_entry_tmp = realloc(maps_entry, 
                                                    offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
 
             if (!maps_entry_tmp) {
-                fprintf(stderr,
-                        "Not enough memory, aborting\n");
+                ret = CD_NO_MEM;
                 free(maps_entry);
                 goto maps_cleanup;
             }
             
             maps_entry = maps_entry_tmp;
             strcpy(maps_entry->pathname, tmp_pathname);
-        }
-
-        if (!is_readable(maps_entry)) {
-            free(maps_entry);
-            continue;
         }
 
         if (*pid_maps) {
@@ -115,21 +112,19 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
     }
 
     if (ferror(maps_file)) {
-        fprintf(stderr,
-                "Error occured while reading file %s\n",
-                maps_path);
+        ret = CD_IO_ERR;
         goto maps_cleanup;
     }
 
     fclose(maps_file);
 
-    return 0;
+    return ret;
 
 maps_cleanup:
     free_maps_list(*pid_maps);
     *pid_maps = NULL;
     fclose(maps_file);
-    return CD_NO_MEM;
+    return ret;
 }
 
 void free_maps_list(maps_entry_t* head) {
@@ -252,6 +247,16 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
 
         tid = atoi(entry->d_name);
 
+        if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
+            ret = CD_PTRACE_ERR;
+            goto state_cleanup;
+        }
+
+        if (waitpid(tid, NULL, 0) < 0) {
+            ret = CD_PTRACE_ERR;
+            goto state_cleanup;
+        }
+
         state = malloc(sizeof(thread_state_t));
         if (!state) {
             ret = CD_NO_MEM;
@@ -275,6 +280,12 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
 
         if ((ret = collect_siginfo(tid, &state->siginfo))) {
             free(state);
+            goto state_cleanup;
+        }
+
+        if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
+            free(state);
+            ret = CD_PTRACE_ERR;
             goto state_cleanup;
         }
 
@@ -349,6 +360,11 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
         }
     }
 
+    if (ferror(status_file)) {
+        fclose(status_file);
+        return CD_IO_ERR;
+    }
+
     fclose(status_file);
 
     return 0;
@@ -359,14 +375,6 @@ static int collect_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstat
     int ret;
 
     memset(prstatus, 0, sizeof(*prstatus));
-
-    if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (waitpid(tid, NULL, 0) < 0) {
-        return CD_PTRACE_ERR;
-    }
 
     /* Signal may be absent */
     ptrace(PTRACE_GETSIGINFO, tid, NULL, &prstatus->pr_info);
@@ -384,10 +392,6 @@ static int collect_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstat
 
     prstatus->pr_fpvalid = 1;
 
-    if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     return ret;
 }
 
@@ -395,14 +399,6 @@ static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
     struct iovec iov;
 
     memset(fpregs, 0, sizeof(*fpregs));
-
-    if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (waitpid(tid, NULL, 0) < 0) {
-        return CD_PTRACE_ERR;
-    }
 
     iov.iov_base = fpregs;
     iov.iov_len = sizeof(*fpregs);
@@ -412,30 +408,14 @@ static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
         return CD_PTRACE_ERR;
     }
 
-    if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     return 0;
 }
 
 static int collect_siginfo(const pid_t tid, siginfo_t* siginfo) {
     memset(siginfo, 0, sizeof(*siginfo));
 
-    if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (waitpid(tid, NULL, 0) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     /* Signals may be absent */
     ptrace(PTRACE_GETSIGINFO, tid, NULL, siginfo);
-
-    if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
 
     return 0;
 }
@@ -445,14 +425,6 @@ static int collect_arm_pac_mask(const pid_t tid, elf_arm_pac_mask_t* mask) {
 
     memset(mask, 0, sizeof(*mask));
 
-    if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
-    if (waitpid(tid, NULL, 0) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     iov.iov_base = mask;
     iov.iov_len = sizeof(*mask);
 
@@ -460,16 +432,12 @@ static int collect_arm_pac_mask(const pid_t tid, elf_arm_pac_mask_t* mask) {
         return CD_PTRACE_ERR;
     }
 
-    if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
-        return CD_PTRACE_ERR;
-    }
-
     return 0;
 }
 
 int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
-    FILE* status_file;
-    FILE* cmdline_file;
+    FILE* status_file = NULL;
+    FILE* cmdline_file = NULL;
     char status_path[32];
     char cmdline_path[32];
     char line[LINE_SIZE];
@@ -509,20 +477,23 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
         }
 
         if (strncmp(line, "Uid:", 4) == 0) {
-            sscanf(line, "Uid: %d", &info->pr_uid);
+            sscanf(line, "Uid: %u", &info->pr_uid);
             continue;
         }
 
         if (strncmp(line, "Gid:", 4) == 0) {
-            sscanf(line, "Gid: %d", &info->pr_gid);
+            sscanf(line, "Gid: %u", &info->pr_gid);
             continue;
         }
     }
 
+    if (ferror(status_file)) {
+        goto prpsinfo_cleanup;
+    }
+
     cmdline_file = fopen(cmdline_path, "r");
     if (!cmdline_file) {
-        fclose(status_file);
-        return CD_IO_ERR;
+        goto prpsinfo_cleanup;
     }
 
     memset(line, 0, sizeof(line));
@@ -538,17 +509,26 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
         info->pr_psargs[sizeof(info->pr_psargs) - 1] = 0;
     }
 
+    if (ferror(cmdline_file)) {
+        goto prpsinfo_cleanup;
+    }
+
     fclose(cmdline_file);
     fclose(status_file);
 
     return 0;
+
+prpsinfo_cleanup:
+    fclose(cmdline_file);
+    fclose(status_file);
+    return CD_IO_ERR;
 }
 
 int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     int auxv_fd;
     char auxv_path[32];
     char buf[512];
-    size_t bytes_read;
+    ssize_t bytes_read;
     size_t total_sz;
     int ret = 0;
 
