@@ -15,9 +15,6 @@
 #define stringify(x) #x
 #define tostring(x) stringify(x)
 
-#define ALIGN_UP(value, alignment) \
-        ((value + (alignment) - 1) & ~((alignment) - 1))
-
 #define PATH_SIZE 4096
 #define LINE_SIZE PATH_SIZE + 256
 #define CHUNK_SIZE 4096
@@ -153,6 +150,38 @@ void print_maps_list(const maps_entry_t* head) {
 
         head = head->next;
     }
+}
+
+int calc_program_headers(const pid_t pid, const maps_entry_t* head, size_t* count) {
+    char task_path[64];
+    DIR* task_dir;
+    struct dirent* entry;
+
+    while (head) {
+        (*count)++; /* Each readable region is described by one note */
+        head = head->next;
+    }
+
+    snprintf(task_path, sizeof(task_path), "/proc/%d/task", pid);
+
+    task_dir = opendir(task_path);
+    if (!task_dir) {
+        return CD_IO_ERR;
+    }
+
+    while ((entry = readdir(task_dir))) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+
+        (*count)++; /* Thread data is placed in one note */
+    }
+
+    *count += 3; /* NT_PRPSINFO, NT_AUXV, NT_FILE */
+
+    closedir(task_dir);
+
+    return 0;
 }
 
 int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr, const pid_t pid) {

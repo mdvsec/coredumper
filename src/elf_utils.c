@@ -15,12 +15,12 @@
 #define PADDING_COUNT(value, padding) \
         (((value + padding - 1) & ~(padding - 1)) - value)
 
-static int dump_process_memory(const int, size_t*, size_t*, const maps_entry_t*, const pid_t, int*);
-static int dump_process_info(const int, size_t*, size_t*, const maps_entry_t*, const pid_t, int*);
+static int dump_process_memory(const int, size_t*, size_t*, const maps_entry_t*, const pid_t);
+static int dump_process_info(const int, size_t*, size_t*, const maps_entry_t*, const pid_t);
 
-static int write_generic_note(const int, size_t*, size_t*, const void*, const size_t, const int, const char*, int*);
+static int write_generic_note(const int, size_t*, size_t*, const void*, const size_t, const int, const char*);
 static int write_note_data(const int, const size_t*, const void*, const size_t, const int, const char*, size_t*);
-static int write_threads_state(const int, size_t*, size_t*, const thread_state_t*, int*);
+static int write_threads_state(const int, size_t*, size_t*, const thread_state_t*);
 static int write_phdr_entry(const int, size_t*, const Elf64_Phdr*);
 
 static void create_program_header_ptload(Elf64_Phdr*, const maps_entry_t*, const size_t*);
@@ -67,10 +67,9 @@ int write_elf_header(const int fd, const ssize_t phdr_count) {
 }
 
 int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_t pid, size_t* phdr_count) {
-    int ptload_hdr_count;
-    int ptnote_hdr_count;
     size_t table_offset;
     size_t data_offset;
+    size_t required_space;
     off_t seek_result;
     int ret;
 
@@ -81,27 +80,29 @@ int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_
     }
     table_offset = (size_t) seek_result;
 
-    /* TBD: Data offset should be calculated based on number of program headers */
-    data_offset = getpagesize();
-
-    ptload_hdr_count = 0;
-    ret = dump_process_memory(fd, &table_offset, &data_offset, head, pid, &ptload_hdr_count);
+    ret = calc_program_headers(pid, head, phdr_count);
     if (ret) {
         return ret;
     }
 
-    ptnote_hdr_count = 0;
-    ret = dump_process_info(fd, &table_offset, &data_offset, head, pid, &ptnote_hdr_count);
+    /* Data offset is calculated based on the number of program headers + reserved space for ELF header */
+    required_space = (*phdr_count * sizeof(Elf64_Phdr)) + sizeof(Elf64_Ehdr);
+    data_offset = ALIGN_UP(required_space, getpagesize());
+
+    ret = dump_process_memory(fd, &table_offset, &data_offset, head, pid);
     if (ret) {
         return ret;
     }
 
-    *phdr_count = ptload_hdr_count + ptnote_hdr_count;
+    ret = dump_process_info(fd, &table_offset, &data_offset, head, pid);
+    if (ret) {
+        return ret;
+    }
 
     return 0;
 }
 
-static int dump_process_memory(const int fd, size_t* table_offset, size_t* data_offset, const maps_entry_t* head, const pid_t pid, int* ptload_hdr_count) {
+static int dump_process_memory(const int fd, size_t* table_offset, size_t* data_offset, const maps_entry_t* head, const pid_t pid) {
     int ret;
 
     while (head) {
@@ -119,15 +120,13 @@ static int dump_process_memory(const int fd, size_t* table_offset, size_t* data_
             return ret;
         }
 
-        (*ptload_hdr_count)++;
-
         head = head->next;
     }
 
     return ret;
 }
 
-static int dump_process_info(const int fd, size_t* table_offset, size_t* data_offset, const maps_entry_t* head, const pid_t pid, int* ptnote_hdr_count) {
+static int dump_process_info(const int fd, size_t* table_offset, size_t* data_offset, const maps_entry_t* head, const pid_t pid) {
     prpsinfo_t prpsinfo;
     thread_state_t* threads_state;
     Elf64_auxv_t* auxv_buf;
@@ -145,7 +144,7 @@ static int dump_process_info(const int fd, size_t* table_offset, size_t* data_of
         return ret;
     }
 
-    ret = write_generic_note(fd, table_offset, data_offset, &prpsinfo, sizeof(prpsinfo), NT_PRPSINFO, "CORE", ptnote_hdr_count);
+    ret = write_generic_note(fd, table_offset, data_offset, &prpsinfo, sizeof(prpsinfo), NT_PRPSINFO, "CORE");
     if (ret) {
         return ret;
     }
@@ -154,7 +153,7 @@ static int dump_process_info(const int fd, size_t* table_offset, size_t* data_of
         return ret;
     }
 
-    ret = write_threads_state(fd, table_offset, data_offset, threads_state, ptnote_hdr_count);
+    ret = write_threads_state(fd, table_offset, data_offset, threads_state);
     if (ret) {
         goto proc_cleanup;
     }
@@ -163,7 +162,7 @@ static int dump_process_info(const int fd, size_t* table_offset, size_t* data_of
         goto proc_cleanup;
     }
 
-    ret = write_generic_note(fd, table_offset, data_offset, auxv_buf, auxv_sz, NT_AUXV, "CORE", ptnote_hdr_count);
+    ret = write_generic_note(fd, table_offset, data_offset, auxv_buf, auxv_sz, NT_AUXV, "CORE");
     if (ret) {
         goto proc_cleanup;
     }
@@ -172,7 +171,7 @@ static int dump_process_info(const int fd, size_t* table_offset, size_t* data_of
         goto proc_cleanup;
     }
 
-    ret = write_generic_note(fd, table_offset, data_offset, nt_file_buf, nt_file_sz, NT_FILE, "CORE", ptnote_hdr_count);
+    ret = write_generic_note(fd, table_offset, data_offset, nt_file_buf, nt_file_sz, NT_FILE, "CORE");
     if (ret) {
         goto proc_cleanup;
     }
@@ -191,7 +190,7 @@ proc_cleanup:
     return ret;
 }
 
-static int write_generic_note(const int fd, size_t* table_offset, size_t* data_offset, const void* buf, const size_t buf_sz, const int type, const char* name, int* ptnote_hdr_count) {
+static int write_generic_note(const int fd, size_t* table_offset, size_t* data_offset, const void* buf, const size_t buf_sz, const int type, const char* name) {
     Elf64_Phdr phdr;
     size_t write_sz;
     int ret;
@@ -208,7 +207,6 @@ static int write_generic_note(const int fd, size_t* table_offset, size_t* data_o
     }
 
     *data_offset += write_sz;
-    (*ptnote_hdr_count)++;
 
     return ret;
 }
@@ -258,7 +256,7 @@ static int write_note_data(const int fd, const size_t* data_offset, const void* 
     return 0;
 }
 
-static int write_threads_state(const int fd, size_t* table_offset, size_t* data_offset, const thread_state_t* head, int* ptnote_hdr_count) {
+static int write_threads_state(const int fd, size_t* table_offset, size_t* data_offset, const thread_state_t* head) {
     size_t note_sz;
 
     while (head) {
@@ -304,8 +302,6 @@ static int write_threads_state(const int fd, size_t* table_offset, size_t* data_
         }
 
         *data_offset += note_sz;
-
-        (*ptnote_hdr_count)++;
 
         head = head->next;
     }

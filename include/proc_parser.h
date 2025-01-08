@@ -9,6 +9,9 @@
 #include <signal.h>
 #include <elf.h>
 
+#define ALIGN_UP(value, alignment) \
+        ((value + (alignment) - 1) & ~((alignment) - 1))
+
 typedef struct _maps_entry_t {
     uintptr_t start_addr;
     uintptr_t end_addr;
@@ -36,6 +39,7 @@ typedef struct _thread_state_t {
 } thread_state_t;
 
 int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps);
+int calc_program_headers(const pid_t pid, const maps_entry_t* head, size_t* count);
 
 int dump_memory_region(const int, size_t*, const Elf64_Phdr*, const pid_t);
 int collect_nt_prpsinfo(const pid_t, prpsinfo_t*);
