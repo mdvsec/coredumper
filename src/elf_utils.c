@@ -7,7 +7,7 @@
 #include <sys/procfs.h>
 #include <sys/uio.h>
 #include "proc_parser.h"
-#include "exit_codes.h"
+#include "common.h"
 
 #define PAGE_SIZE_DEFAULT 4096
 #define PT_NOTE_ALIGNMENT 4
@@ -60,6 +60,7 @@ int write_elf_header(const int fd, const ssize_t phdr_count) {
     elf_hdr.e_phnum = phdr_count;
 
     if (pwrite(fd, &elf_hdr, sizeof(elf_hdr), 0) != sizeof(elf_hdr)) {
+        LOG("Failed to write to file descriptor %d", fd);
         return CD_IO_ERR;
     }
 
@@ -71,11 +72,12 @@ int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_
     size_t data_offset;
     size_t required_space;
     off_t seek_result;
-    int ret;
+    int ret = 0;
 
     /* Reserve space for ELF header */
     seek_result = lseek(fd, sizeof(Elf64_Ehdr), SEEK_SET);
     if (seek_result < 0) {
+        LOG("lseek() failed for file descriptor %d", fd);
         return CD_IO_ERR;
     }
     table_offset = (size_t) seek_result;
@@ -85,7 +87,9 @@ int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_
         return ret;
     }
 
-    /* Data offset is calculated based on the number of program headers + reserved space for ELF header */
+    /* Data offset is calculated based on the number of program headers
+     * and reserved space for ELF header
+     */
     required_space = (*phdr_count * sizeof(Elf64_Phdr)) + sizeof(Elf64_Ehdr);
     data_offset = ALIGN_UP(required_space, getpagesize());
 
@@ -99,11 +103,11 @@ int write_elf_program_headers(const int fd, const maps_entry_t* head, const pid_
         return ret;
     }
 
-    return 0;
+    return ret;
 }
 
 static int dump_process_memory(const int fd, size_t* table_offset, size_t* data_offset, const maps_entry_t* head, const pid_t pid) {
-    int ret;
+    int ret = 0;
 
     while (head) {
         Elf64_Phdr phdr;
@@ -133,7 +137,7 @@ static int dump_process_info(const int fd, size_t* table_offset, size_t* data_of
     size_t auxv_sz;
     void* nt_file_buf;
     size_t nt_file_sz;
-    int ret;
+    int ret = 0;
 
     threads_state = NULL;
     auxv_buf = NULL;
@@ -180,7 +184,7 @@ static int dump_process_info(const int fd, size_t* table_offset, size_t* data_of
     free(auxv_buf);
     free_state_list(threads_state);
 
-    return 0;
+    return ret;
 
 proc_cleanup:
     free(nt_file_buf);
@@ -193,7 +197,7 @@ proc_cleanup:
 static int write_generic_note(const int fd, size_t* table_offset, size_t* data_offset, const void* buf, const size_t buf_sz, const int type, const char* name) {
     Elf64_Phdr phdr;
     size_t write_sz;
-    int ret;
+    int ret = 0;
 
     write_sz = 0;
     ret = write_note_data(fd, data_offset, buf, buf_sz, type, name, &write_sz);
@@ -248,6 +252,9 @@ static int write_note_data(const int fd, const size_t* data_offset, const void* 
     iov[4].iov_len = data_len_padding;
 
     if (pwritev(fd, iov, 5, *data_offset) != note_sz) {
+        LOG("Failed to write to file descriptor %d", fd);
+        LOG("Note name: %s", name);
+        LOG("Note type: %d", type);
         return CD_IO_ERR;
     }
 
@@ -258,12 +265,12 @@ static int write_note_data(const int fd, const size_t* data_offset, const void* 
 
 static int write_threads_state(const int fd, size_t* table_offset, size_t* data_offset, const thread_state_t* head) {
     size_t note_sz;
+    int ret = 0;
 
     while (head) {
         Elf64_Phdr phdr;
         size_t tmp_data_offset;
         size_t write_sz;
-        int ret;
 
         write_sz = 0;
         note_sz = 0;
@@ -306,11 +313,12 @@ static int write_threads_state(const int fd, size_t* table_offset, size_t* data_
         head = head->next;
     }
 
-    return 0;
+    return ret;
 }
 
 static int write_phdr_entry(const int fd, size_t* table_offset, const Elf64_Phdr* phdr) {
     if (pwrite(fd, phdr, sizeof(*phdr), *table_offset) != sizeof(*phdr)) {
+        LOG("Failed to write to file descriptor %d", fd);
         return CD_IO_ERR;
     }
 

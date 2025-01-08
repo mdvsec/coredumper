@@ -34,7 +34,17 @@ file(GLOB SOURCES "${PROJECT_SOURCE_DIR}/src/*.c")
 
 add_executable(memdumper ${SOURCES})
 
-target_compile_options(memdumper PRIVATE -Wall -Wextra -pedantic -g)
+# Set default build type to Release if not specified
+if (NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (Debug, Release)" FORCE)
+endif()
+
+if (CMAKE_BUILD_TYPE MATCHES "Debug")
+    add_compile_definitions(DEBUG_MODE)
+    target_compile_options(memdumper PRIVATE -Wall -Wextra -pedantic -g -O0)
+else()
+    target_compile_options(memdumper PRIVATE -Wall -Wextra -pedantic -O3)
+endif()
 
 # Use GoogleTest framework for testing 
 enable_testing()

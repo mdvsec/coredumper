@@ -6,7 +6,7 @@
 #include <string.h>
 #include <limits.h>
 #include "coredump.h"
-#include "exit_codes.h"
+#include "common.h"
 
 static void __attribute__((noreturn)) print_usage_exit(const char* name) {
     fprintf(stderr, 
@@ -60,9 +60,14 @@ static void print_ret_msg(const int code, const pid_t pid, const char* filename)
                     "Error: ptrace() failed on process %d\n",
                     pid);
             break;
+        case CD_SPECIAL_PROC:
+            fprintf(stderr,
+                    "Error: special process detected, nothing to dump\n");
+            break;
         default:
             fprintf(stderr,
-                    "Error: unknown error occured\n");
+                    "Error: unknown error occured: %d\n",
+                    code);
             break;
     }
 }
@@ -70,7 +75,7 @@ static void print_ret_msg(const int code, const pid_t pid, const char* filename)
 int main(int argc, char** argv) {
     char* filename = NULL;
     int opt;
-    int ret;
+    int ret = 0;
     pid_t pid = 0;
 
     while ((opt = getopt(argc, argv, "p:o:")) > 0) {
@@ -123,7 +128,7 @@ int main(int argc, char** argv) {
         handle_kill_error_exit(pid);
     }
 
-    printf("[DEBUG] Proccess %d has been stopped\n", pid);
+    LOG("Process %d has been stopped", pid);
 
     ret = create_coredump(pid, filename);
     print_ret_msg(ret, pid, filename);
@@ -133,7 +138,7 @@ int main(int argc, char** argv) {
         handle_kill_error_exit(pid);
     }
 
-    printf("[DEBUG] Process %d has been resumed\n", pid);
+    LOG("Process %d has been resumed", pid);
 
     free(filename);
 

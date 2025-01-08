@@ -10,7 +10,7 @@
 #include <dirent.h>
 #include <sys/ptrace.h>
 #include <sys/wait.h>
-#include "exit_codes.h"
+#include "common.h"
 
 #define stringify(x) #x
 #define tostring(x) stringify(x)
@@ -44,6 +44,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
 
     maps_file = fopen(maps_path, "r");
     if (!maps_file) {
+        LOG("Failed to open file: %s", maps_path);
         return CD_IO_ERR;
     }
 
@@ -55,6 +56,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
 
         maps_entry = malloc(sizeof(maps_entry_t));
         if (!maps_entry) {
+            LOG("Failed to allocate memory for maps_entry_t");
             ret = CD_NO_MEM;
             goto maps_cleanup;
         }
@@ -71,6 +73,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
                          tmp_pathname);
 
         if (matched < 7) {
+            LOG("Failed to parse %s", maps_path);
             ret = CD_IO_ERR;
             free(maps_entry);
             goto maps_cleanup;
@@ -89,6 +92,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
                                                    offsetof(maps_entry_t, pathname[0]) + maps_entry->len * sizeof(maps_entry->pathname[0]));
 
             if (!maps_entry_tmp) {
+                LOG("Failed to allocate memory for pathname");
                 ret = CD_NO_MEM;
                 free(maps_entry);
                 goto maps_cleanup;
@@ -109,6 +113,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
     }
 
     if (ferror(maps_file)) {
+        LOG("Failed to read %s", maps_path);
         ret = CD_IO_ERR;
         goto maps_cleanup;
     }
@@ -166,6 +171,7 @@ int calc_program_headers(const pid_t pid, const maps_entry_t* head, size_t* coun
 
     task_dir = opendir(task_path);
     if (!task_dir) {
+        LOG("Failed to open %s", task_path);
         return CD_IO_ERR;
     }
 
@@ -192,6 +198,7 @@ int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr
     char buf[CHUNK_SIZE] = {0};
 
     if (lseek(fd, *data_offset, SEEK_SET) < 0) {
+        LOG("lseek() failed for file descriptor %d", fd);
         return CD_IO_ERR;
     }
 
@@ -199,6 +206,7 @@ int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr
 
     mem_fd = open(mem_path, O_RDONLY);
     if (mem_fd < 0) {
+        LOG("Failed to open %s", mem_path);
         return CD_IO_ERR;
     }
 
@@ -217,6 +225,7 @@ int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr
                             phdr->p_vaddr + offset);
 
             if (read_sz < 0) {
+                LOG("Failed to read %s", mem_path);
                 goto dump_cleanup;
             }
         }
@@ -226,6 +235,7 @@ int dump_memory_region(const int fd, size_t* data_offset, const Elf64_Phdr* phdr
                              buf + write_total_sz,
                              read_sz - write_total_sz);
             if (write_sz < 0) {
+                LOG("Failed to write to file descriptor %d", fd);
                 goto dump_cleanup;
             }
 
@@ -252,9 +262,10 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
     char task_path[64];
     DIR* task_dir;
     struct dirent* entry;
-    int ret;
+    int ret = 0;
 
     if (*head) {
+        LOG("Wrong arguments provided");
         return CD_INVALID_ARGS;
     }
 
@@ -262,6 +273,7 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
 
     task_dir = opendir(task_path);
     if (!task_dir) {
+        LOG("Failed to open %s", task_path);
         return CD_IO_ERR;
     }
 
@@ -276,17 +288,20 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
         tid = atoi(entry->d_name);
 
         if (ptrace(PTRACE_ATTACH, tid, NULL, NULL) < 0) {
+            LOG("ptrace() failed to attach to thread %d", tid);
             ret = CD_PTRACE_ERR;
             goto state_cleanup;
         }
 
         if (waitpid(tid, NULL, 0) < 0) {
+            LOG("waitpid() failed for thread %d", tid);
             ret = CD_PTRACE_ERR;
             goto state_cleanup;
         }
 
         state = malloc(sizeof(thread_state_t));
         if (!state) {
+            LOG("Failed to allocate memory for thread_state_t");
             ret = CD_NO_MEM;
             goto state_cleanup;
         }
@@ -312,6 +327,7 @@ int collect_threads_state(const pid_t pid, thread_state_t** head) {
         }
 
         if (ptrace(PTRACE_DETACH, tid, NULL, NULL) < 0) {
+            LOG("ptrace() failed to detach from thread %d", tid);
             free(state);
             ret = CD_PTRACE_ERR;
             goto state_cleanup;
@@ -365,6 +381,7 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
 
     status_file = fopen(status_path, "r");
     if (!status_file) {
+        LOG("Failed to open %s", status_path);
         return CD_IO_ERR;
     }
 
@@ -392,6 +409,7 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
     prstatus->pr_ppid = common_ppid;
 
     if (ferror(status_file)) {
+        LOG("Failed to read %s", status_path);
         fclose(status_file);
         return CD_IO_ERR;
     }
@@ -403,12 +421,18 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
 
 static int collect_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstatus) {
     struct iovec iov;
-    int ret;
+    int ret = 0;
 
     memset(prstatus, 0, sizeof(*prstatus));
 
-    /* Signal may be absent */
-    ptrace(PTRACE_GETSIGINFO, tid, NULL, &prstatus->pr_info);
+    if (ptrace(PTRACE_GETSIGINFO, tid, NULL, &prstatus->pr_info) < 0) {
+        if (errno == EINVAL) {
+            LOG("ptrace() failed with PTRACE_GETSIGINFO (group-stop detected)");
+            errno = 0;
+        } else {
+            LOG("ptrace() failed with PTRACE_GETSIGINFO");
+        }
+    }
     prstatus->pr_cursig = prstatus->pr_info.si_signo;
 
     if ((ret = populate_prstatus(pid, tid, prstatus))) {
@@ -418,6 +442,7 @@ static int collect_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstat
     iov.iov_base = &prstatus->pr_reg;
     iov.iov_len = sizeof(prstatus->pr_reg);
     if (ptrace(PTRACE_GETREGSET, tid, (void*) NT_PRSTATUS, &iov) < 0) {
+        LOG("ptrace() failed with PTRACE_GETREGSET");
         return CD_PTRACE_ERR;
     }
 
@@ -435,7 +460,7 @@ static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
     iov.iov_len = sizeof(*fpregs);
 
     if (ptrace(PTRACE_GETREGSET, tid, (void*) NT_FPREGSET, &iov) < 0) {
-        perror("ptrace_getregset");
+        LOG("ptrace() failed with PTRACE_GETREGSET");
         return CD_PTRACE_ERR;
     }
 
@@ -445,8 +470,14 @@ static int collect_fpregs(const pid_t tid, elf_fpregset_t* fpregs) {
 static int collect_siginfo(const pid_t tid, siginfo_t* siginfo) {
     memset(siginfo, 0, sizeof(*siginfo));
 
-    /* Signals may be absent */
-    ptrace(PTRACE_GETSIGINFO, tid, NULL, siginfo);
+    if (ptrace(PTRACE_GETSIGINFO, tid, NULL, siginfo) < 0) {
+        if (errno == EINVAL) {
+            LOG("ptrace() failed with PTRACE_GETSIGINFO (group-stop detected)");
+            errno = 0;
+        } else {
+            LOG("ptrace() failed with PTRACE_GETSIGINFO");
+        }
+    }
 
     return 0;
 }
@@ -460,6 +491,7 @@ static int collect_arm_pac_mask(const pid_t tid, elf_arm_pac_mask_t* mask) {
     iov.iov_len = sizeof(*mask);
 
     if (ptrace(PTRACE_GETREGSET, tid, (void*) NT_ARM_PAC_MASK, &iov) < 0) {
+        LOG("ptrace() failed with PTRACE_GETREGSET");
         return CD_PTRACE_ERR;
     }
 
@@ -479,6 +511,7 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
 
     status_file = fopen(status_path, "r");
     if (!status_file) {
+        LOG("Failed to open %s", status_path);
         return CD_IO_ERR;
     }
 
@@ -511,11 +544,13 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
     info->pr_pid = pid;
 
     if (ferror(status_file)) {
+        LOG("Failed to read %s", status_path);
         goto prpsinfo_cleanup;
     }
 
     cmdline_file = fopen(cmdline_path, "r");
     if (!cmdline_file) {
+        LOG("Failed to open %s", cmdline_path);
         goto prpsinfo_cleanup;
     }
 
@@ -530,9 +565,12 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
 
         strncpy(info->pr_psargs, line, sizeof(info->pr_psargs) - 1);
         info->pr_psargs[sizeof(info->pr_psargs) - 1] = 0;
+    } else {
+        LOG("Failed to read %s", cmdline_path);
     }
 
     if (ferror(cmdline_file)) {
+        LOG("Failed to read %s", cmdline_path);
         goto prpsinfo_cleanup;
     }
 
@@ -559,10 +597,12 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
 
     auxv_fd = open(auxv_path, O_RDONLY);
     if (auxv_fd < 0) {
+        LOG("Failed to open %s", auxv_path);
         return CD_IO_ERR;
     }
 
     if (*data_buf) {
+        LOG("Wrong arguments provided");
         close(auxv_fd);
         return CD_INVALID_ARGS;
     }
@@ -573,6 +613,7 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     while ((bytes_read = read(auxv_fd, buf, sizeof(buf))) > 0) {
         Elf64_auxv_t* tmp_buf = realloc(*data_buf, total_sz + bytes_read);
         if (!tmp_buf) {
+            LOG("Failed to allocate memory for data_buf");
             ret = CD_NO_MEM;
             goto auxv_cleanup;
         }
@@ -584,6 +625,7 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     }
 
     if (bytes_read < 0 || total_sz == 0) {
+        LOG("Failed to read %s", auxv_path);
         ret = CD_IO_ERR;
         goto auxv_cleanup;
     }
@@ -591,6 +633,7 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
     if (data_sz) {
         *data_sz = total_sz;
     } else {
+        LOG("Wrong arguments provided");
         ret = CD_INVALID_ARGS;
         goto auxv_cleanup;
     }
@@ -633,17 +676,20 @@ int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) 
     }
 
     if (*data_buf) {
+        LOG("Wrong arguments provided");
         return CD_INVALID_ARGS;
     }
 
     *data_buf = malloc(desc_sz);
     if (!*data_buf) {
+        LOG("Failed to allocate memory for data_buf");
         return CD_NO_MEM;
     }
 
     if (data_sz) {
         *data_sz = desc_sz;
     } else {
+        LOG("Wrong arguments provided");
         return CD_INVALID_ARGS;
     }
 
