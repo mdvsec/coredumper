@@ -565,8 +565,6 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
 
         strncpy(info->pr_psargs, line, sizeof(info->pr_psargs) - 1);
         info->pr_psargs[sizeof(info->pr_psargs) - 1] = 0;
-    } else {
-        LOG("Failed to read %s", cmdline_path);
     }
 
     if (ferror(cmdline_file)) {

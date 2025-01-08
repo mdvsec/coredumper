@@ -15,7 +15,8 @@ int create_coredump(const pid_t pid, const char* filename) {
     int coredump_fd;
     int ret;
 
-    coredump_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    coredump_fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC,
+                       S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
     if (coredump_fd < 0) {
         LOG("Failed to open %s", filename);
         return CD_IO_ERR;
