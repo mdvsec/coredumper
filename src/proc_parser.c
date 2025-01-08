@@ -329,6 +329,8 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
     FILE* status_file;
     char status_path[32];
     char line[LINE_SIZE];
+    static pid_t common_ppid = -1;
+    int sig_fields_found = 0;
 
     snprintf(status_path, sizeof(status_path), "/proc/%d/task/%d/status", pid, tid);
 
@@ -338,26 +340,27 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
     }
 
     while (fgets(line, sizeof(line), status_file)) {
-        if (strncmp(line, "SigPnd:", 7) == 0) {
-            sscanf(line, "SigPnd: %lx", &prstatus->pr_sigpend);
+        if (sscanf(line, "SigPnd: %lx", &prstatus->pr_sigpend)) {
+            sig_fields_found++;
             continue;
         }
 
-        if (strncmp(line, "SigBlk:", 7) == 0) {
-            sscanf(line, "SigBlk: %lx", &prstatus->pr_sighold);
+        if (sscanf(line, "SigBlk: %lx", &prstatus->pr_sighold)) {
+            sig_fields_found++;
             continue;
         }
 
-        if (strncmp(line, "Pid:", 4) == 0) {
-            sscanf(line, "Pid: %d", &prstatus->pr_pid);
+        if (common_ppid < 0 && sscanf(line, "PPid: %d", &common_ppid)) {
             continue;
         }
 
-        if (strncmp(line, "PPid:", 5) == 0) {
-            sscanf(line, "PPid: %d", &prstatus->pr_ppid);
-            continue;
+        if (sig_fields_found == 2 && common_ppid >= 0) {
+            break; /* Everything is found */
         }
     }
+
+    prstatus->pr_pid = tid;
+    prstatus->pr_ppid = common_ppid;
 
     if (ferror(status_file)) {
         fclose(status_file);
@@ -453,38 +456,30 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
     memset(info, 0, sizeof(*info));
 
     while (fgets(line, sizeof(line), status_file)) {
-        if (strncmp(line, "Name:", 5) == 0) {
-            sscanf(line, "Name: %15s", info->pr_fname);
+        if (sscanf(line, "Name: %15s", info->pr_fname)) {
             continue;
         }
 
-        if (strncmp(line, "State:", 6) == 0) {
-            sscanf(line, "State: %c", &info->pr_sname);
+        if (sscanf(line, "State: %c", &info->pr_sname)) {
             info->pr_zomb = (info->pr_sname == 'Z') ? 1 : 0;
             info->pr_state = info->pr_sname;
             continue;
         }
 
-        if (strncmp(line, "Pid:", 4) == 0) {
-            sscanf(line, "Pid: %d", &info->pr_pid);
+        if (sscanf(line, "PPid: %d", &info->pr_ppid)) {
             continue;
         }
 
-        if (strncmp(line, "PPid:", 5) == 0) {
-            sscanf(line, "PPid: %d", &info->pr_ppid);
+        if (sscanf(line, "Uid: %u", &info->pr_uid)) {
             continue;
         }
 
-        if (strncmp(line, "Uid:", 4) == 0) {
-            sscanf(line, "Uid: %u", &info->pr_uid);
-            continue;
-        }
-
-        if (strncmp(line, "Gid:", 4) == 0) {
-            sscanf(line, "Gid: %u", &info->pr_gid);
+        if (sscanf(line, "Gid: %u", &info->pr_gid)) {
             continue;
         }
     }
+
+    info->pr_pid = pid;
 
     if (ferror(status_file)) {
         goto prpsinfo_cleanup;
