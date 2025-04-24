@@ -5,4 +5,4 @@
 
 int create_coredump(const pid_t, const char*);
 
-#endif
+#endif // COREDUMP_H

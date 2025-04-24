@@ -28,4 +28,18 @@ enum coredump_exit_codes {
     CD_SPECIAL_PROC     = 5
 };
 
+/* Wrapper over fopen() for unit testing */
+#ifdef UNIT_TESTING
+
+extern char* mock_file;
+
+inline FILE* fopen_mock(const char* path, const char* mode) {
+    return mock_file ? fmemopen(mock_file, strlen(mock_file), mode) : NULL;
+}
+#else
+inline FILE* fopen_mock(const char* path, const char* mode) {
+    return fopen(path, mode);
+}
 #endif
+
+#endif // COMMON_H

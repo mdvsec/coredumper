@@ -42,7 +42,7 @@ int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps) {
 
     snprintf(maps_path, sizeof(maps_path), "/proc/%d/maps", pid);
 
-    maps_file = fopen(maps_path, "r");
+    maps_file = fopen_mock(maps_path, "r");
     if (!maps_file) {
         LOG("Failed to open file: %s", maps_path);
         return CD_IO_ERR;
@@ -370,7 +370,7 @@ void print_state_list(const thread_state_t* head) {
     }
 }
 
-static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstatus) {
+int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prstatus) {
     FILE* status_file;
     char status_path[32];
     char line[LINE_SIZE];
@@ -379,7 +379,7 @@ static int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* prsta
 
     snprintf(status_path, sizeof(status_path), "/proc/%d/task/%d/status", pid, tid);
 
-    status_file = fopen(status_path, "r");
+    status_file = fopen_mock(status_path, "r");
     if (!status_file) {
         LOG("Failed to open %s", status_path);
         return CD_IO_ERR;
@@ -509,7 +509,7 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
     snprintf(status_path, sizeof(status_path), "/proc/%d/status", pid);
     snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%d/cmdline", pid);
 
-    status_file = fopen(status_path, "r");
+    status_file = fopen_mock(status_path, "r");
     if (!status_file) {
         LOG("Failed to open %s", status_path);
         return CD_IO_ERR;
@@ -548,7 +548,7 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
         goto prpsinfo_cleanup;
     }
 
-    cmdline_file = fopen(cmdline_path, "r");
+    cmdline_file = fopen_mock(cmdline_path, "r");
     if (!cmdline_file) {
         LOG("Failed to open %s", cmdline_path);
         goto prpsinfo_cleanup;
@@ -556,6 +556,7 @@ int collect_nt_prpsinfo(const pid_t pid, prpsinfo_t* info) {
 
     memset(line, 0, sizeof(line));
     len = fread(line, 1, sizeof(line), cmdline_file);
+
     if (len) {
         for (size_t i = 0; i < len; i++) {
             if (line[i] == 0) {

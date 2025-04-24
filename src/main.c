@@ -53,7 +53,8 @@ static void print_ret_msg(const int code, const pid_t pid, const char* filename)
             break;
         case CD_IO_ERR:
             fprintf(stderr,
-                    "Error: I/O error occured while accessing a file system\n");
+                    "Error: I/O error occured while accessing a file system. "
+                    "Try running with sudo or as root to ensure proper permissions\n");
             break;
         case CD_PTRACE_ERR:
             fprintf(stderr,

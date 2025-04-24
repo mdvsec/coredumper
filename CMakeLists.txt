@@ -59,7 +59,12 @@ FetchContent_MakeAvailable(googletest)
 
 file(GLOB TEST_SOURCES "${PROJECT_SOURCE_DIR}/tests/*.cc")
 if (TEST_SOURCES)
-    add_executable(memdumper_tests ${TEST_SOURCES})
+    set(SOURCES_COPY ${SOURCES})
+    list(REMOVE_ITEM SOURCES_COPY "${PROJECT_SOURCE_DIR}/src/main.c")
+
+    add_executable(memdumper_tests ${TEST_SOURCES} ${SOURCES_COPY})
+
+    target_compile_definitions(memdumper_tests PRIVATE UNIT_TESTING)
 
     target_link_libraries(memdumper_tests GTest::gtest_main)
 

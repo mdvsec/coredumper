@@ -38,6 +38,10 @@ typedef struct _thread_state_t {
     struct _thread_state_t* next;
 } thread_state_t;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int parse_procfs_maps(const pid_t pid, maps_entry_t** pid_maps);
 int calc_program_headers(const pid_t pid, const maps_entry_t* head, size_t* count);
 
@@ -46,6 +50,7 @@ int collect_nt_prpsinfo(const pid_t, prpsinfo_t*);
 int collect_threads_state(const pid_t pid, thread_state_t** head);
 int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz);
 int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz);
+int populate_prstatus(const pid_t pid, const pid_t tid, prstatus_t* status);
 
 void free_maps_list(maps_entry_t*);
 void print_maps_list(const maps_entry_t*);
@@ -53,4 +58,8 @@ void print_maps_list(const maps_entry_t*);
 void free_state_list(thread_state_t*);
 void print_state_list(const thread_state_t*);
 
+#ifdef __cplusplus
+}
 #endif
+
+#endif // PROC_PARSER_H
