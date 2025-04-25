@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <string.h>
+#include <fcntl.h>
 
 #ifdef DEBUG_MODE
 #define LOG(msg, ...) do { \
@@ -28,18 +29,31 @@ enum coredump_exit_codes {
     CD_SPECIAL_PROC     = 5
 };
 
-/* Wrapper over fopen() for unit testing */
+/* Wrappers over open() and fopen() for unit testing */
 #ifdef UNIT_TESTING
 
+extern int mock_fd;
 extern char* mock_file;
 
+inline int open_mock(const char* pathname, int flags) {
+    (void*) pathname; (void) flags; // suppress "unused" compiler warnings
+    return mock_fd;
+}
+
 inline FILE* fopen_mock(const char* path, const char* mode) {
+    (void*) path; // suppress "unused" compiler warnings
     return mock_file ? fmemopen(mock_file, strlen(mock_file), mode) : NULL;
 }
+
 #else
+inline int open_mock(const char* pathname, int flags) {
+    return open(pathname, flags);
+}
+
 inline FILE* fopen_mock(const char* path, const char* mode) {
     return fopen(path, mode);
 }
+
 #endif
 
 #endif // COMMON_H
