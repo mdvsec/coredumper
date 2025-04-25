@@ -655,6 +655,8 @@ int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) 
     size_t region_count;
     size_t region_offset;
     size_t name_offset;
+    char* region_ptr;
+    char* name_ptr;
     const char anon_name[] = "[anonymous]";
 
     desc_sz = sizeof(uint64_t) * 2; /* count, pagesize */
@@ -689,6 +691,8 @@ int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) 
         *data_sz = desc_sz;
     } else {
         LOG("Wrong arguments provided");
+        free(*data_buf);
+        *data_buf = NULL;
         return CD_INVALID_ARGS;
     }
 
@@ -701,25 +705,28 @@ int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) 
     name_offset = region_offset + region_count * sizeof(uint64_t) * 3;
 
     entry = head;
+    region_ptr = (char*) *data_buf + region_offset;
+    name_ptr = (char*) *data_buf + name_offset;
+
     while (entry) {
         if (entry->inode) {
             const char* entry_name;
             size_t entry_name_len;
 
-            *(uint64_t*) ((char*) *data_buf + region_offset) = (uint64_t) entry->start_addr;
-            region_offset += sizeof(uint64_t);
+            *(uint64_t*) region_ptr = (uint64_t) entry->start_addr;
+            region_ptr += sizeof(uint64_t);
 
-            *(uint64_t*) ((char*) *data_buf + region_offset) = (uint64_t) entry->end_addr;
-            region_offset += sizeof(uint64_t);
+            *(uint64_t*) region_ptr = (uint64_t) entry->end_addr;
+            region_ptr += sizeof(uint64_t);
 
-            *(uint64_t*) ((char*) *data_buf + region_offset) = (uint64_t) entry->offset;
-            region_offset += sizeof(uint64_t);
+            *(uint64_t*) region_ptr = (uint64_t) entry->offset;
+            region_ptr += sizeof(uint64_t);
 
             entry_name = entry->len ? entry->pathname : anon_name;
             entry_name_len = strlen(entry_name) + 1;
 
-            strcpy((char*) *data_buf + name_offset, entry_name);
-            name_offset += entry_name_len;
+            strcpy(name_ptr, entry_name);
+            name_ptr += entry_name_len;
         }
 
         entry = entry->next;

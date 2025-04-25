@@ -22,7 +22,7 @@ if (NOT OS_TYPE MATCHES "Linux" OR NOT ARCH_TYPE MATCHES "aarch64")
             "Current architecture: ${ARCH_TYPE}\n")
 endif()
 
-project(memdumper C CXX)
+project(coredumper C CXX)
 
 # GoogleTest requires at least C++14
 set(CMAKE_CXX_STANDARD 14)
@@ -32,7 +32,7 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 
 file(GLOB SOURCES "${PROJECT_SOURCE_DIR}/src/*.c")
 
-add_executable(memdumper ${SOURCES})
+add_executable(coredumper ${SOURCES})
 
 # Set default build type to Release if not specified
 if (NOT CMAKE_BUILD_TYPE)
@@ -41,9 +41,9 @@ endif()
 
 if (CMAKE_BUILD_TYPE MATCHES "Debug")
     add_compile_definitions(DEBUG_MODE)
-    target_compile_options(memdumper PRIVATE -Wall -Wextra -pedantic -g -O0)
+    target_compile_options(coredumper PRIVATE -Wall -Wextra -pedantic -g -O0)
 else()
-    target_compile_options(memdumper PRIVATE -Wall -Wextra -pedantic -O3)
+    target_compile_options(coredumper PRIVATE -Wall -Wextra -pedantic -O3)
 endif()
 
 # Use GoogleTest framework for testing 
@@ -62,12 +62,12 @@ if (TEST_SOURCES)
     set(SOURCES_COPY ${SOURCES})
     list(REMOVE_ITEM SOURCES_COPY "${PROJECT_SOURCE_DIR}/src/main.c")
 
-    add_executable(memdumper_tests ${TEST_SOURCES} ${SOURCES_COPY})
+    add_executable(coredumper_tests ${TEST_SOURCES} ${SOURCES_COPY})
 
-    target_compile_definitions(memdumper_tests PRIVATE UNIT_TESTING)
+    target_compile_definitions(coredumper_tests PRIVATE UNIT_TESTING)
 
-    target_link_libraries(memdumper_tests GTest::gtest_main)
+    target_link_libraries(coredumper_tests GTest::gtest_main)
 
     include(GoogleTest)
-    gtest_discover_tests(memdumper_tests)
+    gtest_discover_tests(coredumper_tests)
 endif()
