@@ -594,7 +594,7 @@ int collect_nt_auxv(const pid_t pid, Elf64_auxv_t** data_buf, size_t* data_sz) {
 
     snprintf(auxv_path, sizeof(auxv_path), "/proc/%d/auxv", pid);
 
-    auxv_fd = open(auxv_path, O_RDONLY);
+    auxv_fd = open_mock(auxv_path, O_RDONLY);
     if (auxv_fd < 0) {
         LOG("Failed to open %s", auxv_path);
         return CD_IO_ERR;
@@ -724,33 +724,6 @@ int collect_nt_file(const maps_entry_t* head, void** data_buf, size_t* data_sz) 
 
         entry = entry->next;
     }
-
-    /*
-    const uint64_t* ptr = (const uint64_t*) data_buf;
-    uint64_t count = *ptr++;
-    uint64_t pgsz = *ptr++;
-
-    printf("Region count: %ld\nPage size: %ld\n", count, pgsz);
-
-    const uint64_t* region_ptr = ptr;
-
-    const char* name_ptr = (const char*) data_buf + sizeof(uint64_t) * 2 + (region_count * sizeof(uint64_t) * 3);
-
-    printf("\nRegions:\n");
-    printf("Start Address | End Address | Offset       | Name\n");
-    printf("-------------------------------------------------\n");
-
-    for (size_t i = 0; i < region_count; i++) {
-        uint64_t start_addr = *region_ptr++;
-        uint64_t end_addr = *region_ptr++;
-        uint64_t offset = *region_ptr++;
-
-        printf("%12lx | %12lx | %12lx | %s\n", start_addr, end_addr, offset, name_ptr);
-
-        name_ptr += strlen(name_ptr) + 1;
-    }
-
-    */
 
     return 0;
 }
