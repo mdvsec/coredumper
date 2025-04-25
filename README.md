@@ -26,14 +26,24 @@
 ## Usage
 To dump a process core:
 ```bash
-./coredumper -p <pid> [-o <filename>]
+sudo ./coredumper -p <pid> [-o <filename>]
 ```
 Where:
 - `-p <pid>`: Specifies the process ID to dump
 - `-o <filename>` (optional): Specifies the output filename for the core dump. If not provided, a default filename will be used (\<pid\>_coredump)
 
 ## Example
-To dump the current shell process and save the core dump as `core_dump`:
+To dump a running `sleep` process and save the core dump as `core_dump`:
 ```bash
-./coredumper -p $$ -o core_dump
+# Start a background process
+sleep 5m &
+
+# Get its PID
+pid=$!
+
+# Dump process memory
+sudo ./coredumper -p $pid -o core_dump
+
+# Analyze the dump with GDB
+sudo gdb /bin/sleep -c core_dump
 ```
